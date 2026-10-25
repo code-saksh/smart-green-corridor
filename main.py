@@ -105,7 +105,8 @@ async def get_hospitals():
 @app.post("/api/driver/gps")
 async def receive_driver_gps(packet: LiveGPSPacket):
     """
-    Receives live device GPS and computes sequential closest-junction preemption math.
+    Receives live device GPS, checks proximity strictly along the active route,
+    and locks onto the correct upcoming junction.
     """
     live_state["active"] = True
     live_state["ambulance_id"] = packet.ambulance_id
@@ -121,12 +122,23 @@ async def receive_driver_gps(packet: LiveGPSPacket):
 
     for j in junctions:
         dist = haversine_m(packet.lat, packet.lon, j["lat"], j["lon"])
+        
+        # FIX: Only consider a junction if the ambulance is within a reasonable corridor range (e.g., < 3500 meters) 
+        # AND hasn't already been passed. This prevents distant out-of-route junctions from triggering.
         if dist < 40.0 and j["id"] not in live_state["passed_junctions"]:
             live_state["passed_junctions"].append(j["id"])
 
-        if j["id"] not in live_state["passed_junctions"]:
+        if j["id"] not in live_state["passed_junctions"] and dist < 4000.0:
             upcoming = (j, dist)
-            break
+            break  # Pick the first valid upcoming junction in sequence
+
+    # If no junction is within range, default to the first unpassed junction in the list
+    if not upcoming:
+        for j in junctions:
+            if j["id"] not in live_state["passed_junctions"]:
+                dist = haversine_m(packet.lat, packet.lon, j["lat"], j["lon"])
+                upcoming = (j, dist)
+                break
 
     if upcoming:
         j_cfg, dist_m = upcoming
@@ -136,7 +148,6 @@ async def receive_driver_gps(packet: LiveGPSPacket):
         amb_lane = j_cfg["amb_approach"]
         lanes = dict(j_cfg["lanes"])
 
-        # Queue Clearance Math: T_clear = T_startup + (N_vehicles / Saturation_Flow)
         startup_delay = 2.5
         saturation_flow = 0.55
         queue_in_amb_lane = lanes[amb_lane]
@@ -152,18 +163,18 @@ async def receive_driver_gps(packet: LiveGPSPacket):
             signals[amb_lane] = "GREEN"
             progress_ratio = max(0.0, min(1.0, eta_sec / max(t_clear, 1.0)))
             lanes[amb_lane] = max(0, int(queue_in_amb_lane * progress_ratio))
-            reason = f"⚡ GREEN CORRIDOR ACTIVE: Flushing {queue_in_amb_lane} cars in {amb_lane} lane."
+            reason = f"⚡ GREEN CORRIDOR ACTIVE: Flushing {queue_in_amb_lane} cars in {amb_lane} lane for {j_cfg['name']}."
         elif eta_sec <= trigger_sec:
             phase = "YELLOW_SAFETY_CLEARANCE"
             perp_lane = "EAST" if amb_lane in ["NORTH", "SOUTH"] else "NORTH"
             signals[perp_lane] = "YELLOW"
-            reason = f"⚠️ PREEMPTION TRIGGERED: Stopping cross-traffic on {perp_lane} with 3.5s Yellow safety buffer."
+            reason = f"⚠️ PREEMPTION TRIGGERED at {j_cfg['name']}: Stopping cross-traffic on {perp_lane}."
         else:
             phase = "ADAPTIVE_CROSS_TRAFFIC"
             other_lanes = [k for k in lanes.keys() if k != amb_lane]
             busiest_cross = max(other_lanes, key=lambda k: lanes[k])
             signals[busiest_cross] = "GREEN"
-            reason = f"🧠 ML BALANCING: Ambulance is {round(dist_m)}m away. Clearing busiest cross-lane ({busiest_cross})."
+            reason = f"🧠 Approaching {j_cfg['name']} ({round(dist_m)}m away). Regulating cross-traffic."
 
         live_state["active_junction"] = {
             "id": j_cfg["id"],
