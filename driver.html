@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Part 1: Ambulance Driver Live GPS & Congestion Navigation</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    body { background: #090d16; color: #f8fafc; font-family: system-ui, sans-serif; }
+    #map { height: 100%; width: 100%; border-radius: 1rem; }
+    .amb-dot {
+      width: 22px; height: 22px; background: #ef4444; border: 3px solid #fff;
+      border-radius: 50%; box-shadow: 0 0 15px #ef4444;
+    }
+  </style>
+</head>
+<body class="h-screen flex flex-col p-3 gap-3 overflow-hidden">
+
+  <!-- HEADER -->
+  <header class="bg-slate-900 border border-slate-800 rounded-xl px-5 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <span class="h-3 w-3 rounded-full bg-red-500 animate-ping"></span>
+      <div>
+        <h1 class="text-base font-bold text-white">PART 1 // Ambulance Driver GPS Transmitter & Smart Route Selector</h1>
+        <p class="text-xs text-slate-400">Live Traffic Congestion Analysis + Sequential Closest-Junction GPS Hand-Off</p>
+      </div>
+    </div>
+    <div id="txBadge" class="bg-slate-950 border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-mono text-slate-400">
+      📡 GPS Stream: STANDBY
+    </div>
+  </header>
+
+  <div class="flex-1 grid grid-cols-12 gap-3 overflow-hidden">
+    <!-- LEFT: DRIVER PHONE INTERFACE (4 COLS) -->
+    <div class="col-span-4 bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between overflow-y-auto">
+      <div class="space-y-4">
+        <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl">
+          <div class="text-[11px] uppercase text-slate-400 font-bold mb-1">Emergency Trip Route</div>
+          <div class="text-sm font-semibold text-white">📍 Origin: Silk Board Junction</div>
+          <div class="text-sm font-semibold text-emerald-400 mt-1">🏥 Destination: Manipal Hospital</div>
+        </div>
+
+        <!-- LIVE ROUTE CONGESTION COMPARISON -->
+        <div>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">1. Live Congestion Path Selection</h2>
+          <div id="routeCards" class="space-y-2.5"></div>
+        </div>
+
+        <!-- DRIVER GPS TRANSMISSION CONTROLS -->
+        <div class="border-t border-slate-800 pt-4">
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">2. Live Driver GPS Transmitter</h2>
+          <div class="mb-3">
+            <label class="text-xs text-slate-300 flex justify-between mb-1">
+              <span>Ambulance Speed:</span>
+              <span id="speedLabel" class="font-bold text-cyan-400">65 km/h</span>
+            </label>
+            <input id="speedInput" type="range" min="30" max="100" value="65" class="w-full accent-red-500"
+              oninput="document.getElementById('speedLabel').innerText = this.value + ' km/h'" />
+          </div>
+
+          <div class="flex gap-2">
+            <button onclick="startDriverGPS()" class="flex-1 bg-red-600 hover:bg-red-500 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg transition">
+              🚑 Start Live GPS Transmission
+            </button>
+            <button onclick="resetDriverGPS()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 rounded-xl text-xs">
+              Reset
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- SEQUENTIAL JUNCTION HAND-OFF MONITOR -->
+      <div class="bg-slate-950 border border-cyan-500/40 rounded-xl p-3.5 mt-4">
+        <div class="text-[11px] font-bold uppercase tracking-wider text-cyan-400 mb-2">
+          🎯 Active Target Junction (Closest Only)
+        </div>
+        <div id="closestJunctionBox" class="text-xs text-slate-300 space-y-1">
+          Press "Start Live GPS Transmission" to lock onto the first traffic signal.
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: LIVE CONGESTION & NAVIGATION MAP (8 COLS) -->
+    <div class="col-span-8 bg-slate-900 border border-slate-800 rounded-xl p-2 relative">
+      <div id="map"></div>
+      <!-- Map Legend -->
+      <div class="absolute bottom-5 right-5 z-[999] bg-slate-950/90 border border-slate-800 rounded-xl p-3 text-xs space-y-1.5">
+        <div class="font-bold text-white mb-1">Live Traffic Congestion Legend</div>
+        <div class="flex items-center gap-2"><span class="w-4 h-1.5 bg-emerald-500 inline-block rounded"></span> Free Flow / Clearable</div>
+        <div class="flex items-center gap-2"><span class="w-4 h-1.5 bg-amber-500 inline-block rounded"></span> Moderate Traffic (Preemptable)</div>
+        <div class="flex items-center gap-2"><span class="w-4 h-1.5 bg-red-500 inline-block rounded"></span> Severe Gridlock (Avoided by AI)</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const map = L.map('map').setView([12.9400, 77.6300], 13);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+
+    let routesData = {};
+    let finePath = [];
+    let currentStep = 0;
+    let gpsTimer = null;
+    let ambMarker = null;
+    let junctionMarkers = {};
+
+    const ambIcon = L.divIcon({ className: '', html: '<div class="amb-dot"></div>', iconSize: [22, 22], iconAnchor: [11, 11] });
+
+    function interpolateWaypoints(waypoints, stepsPerLeg = 30) {
+      const pts = [];
+      for (let i = 0; i < waypoints.length - 1; i++) {
+        const [lat1, lon1] = waypoints[i];
+        const [lat2, lon2] = waypoints[i + 1];
+        for (let s = 0; s < stepsPerLeg; s++) {
+          const t = s / stepsPerLeg;
+          pts.push([lat1 + (lat2 - lat1) * t, lon1 + (lon2 - lon1) * t]);
+        }
+      }
+      pts.push(waypoints[waypoints.length - 1]);
+      return pts;
+    }
+
+    async function initRoutes() {
+      const res = await fetch('/api/routes');
+      const data = await res.json();
+      routesData = data.routes;
+
+      const container = document.getElementById('routeCards');
+      container.innerHTML = '';
+
+      Object.values(routesData).forEach(r => {
+        // Draw congestion segments on map
+        r.congestion_segments.forEach(seg => {
+          L.polyline(seg.coords, {
+            color: seg.color,
+            weight: r.is_best_path ? 6 : 4,
+            opacity: r.is_best_path ? 0.9 : 0.45,
+            dashArray: r.is_best_path ? null : '6, 8'
+          }).addTo(map);
+        });
+
+        // Draw junctions on best route
+        r.junctions.forEach(j => {
+          junctionMarkers[j.id] = L.circleMarker([j.lat, j.lon], {
+            radius: 9, fillColor: '#ef4444', color: '#fff', weight: 2, fillOpacity: 1
+          }).addTo(map).bindTooltip(`${j.id}: ${j.name}`, { permanent: true, direction: 'right' });
+        });
+
+        // Render Route Selection Card
+        const card = document.createElement('div');
+        card.className = `p-3 rounded-xl border ${r.is_best_path ? 'bg-emerald-950/30 border-emerald-500/60' : 'bg-slate-950 border-slate-800 opacity-75'}`;
+        card.innerHTML = `
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-xs font-bold ${r.is_best_path ? 'text-emerald-400' : 'text-rose-400'}">
+              ${r.is_best_path ? '✅ AI SELECTED BEST PATH' : '❌ AVOIDED (GRIDLOCK)'}
+            </span>
+            <span class="text-xs font-mono text-white">${r.estimated_time_min} mins (${r.total_distance_km} km)</span>
+          </div>
+          <div class="text-xs font-semibold text-white mb-1">${r.name}</div>
+          <div class="text-[11px] text-slate-400">${r.reason}</div>
+        `;
+        container.appendChild(card);
+      });
+
+      finePath = interpolateWaypoints(routesData.route_a.waypoints, 28);
+      ambMarker = L.marker(finePath[0], { icon: ambIcon }).addTo(map);
+    }
+
+    function startDriverGPS() {
+      if (gpsTimer) clearInterval(gpsTimer);
+      gpsTimer = setInterval(async () => {
+        if (currentStep >= finePath.length - 1) {
+          clearInterval(gpsTimer);
+          document.getElementById('txBadge').innerText = '🏥 DESTINATION REACHED';
+          return;
+        }
+        const speed = parseFloat(document.getElementById('speedInput').value);
+        const stepAdvance = Math.max(1, Math.round(speed / 45));
+        currentStep = Math.min(finePath.length - 1, currentStep + stepAdvance);
+
+        const [lat, lon] = finePath[currentStep];
+        ambMarker.setLatLng([lat, lon]);
+
+        // Transmit Live GPS Packet to Authority Server
+        const res = await fetch('/api/driver/gps', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ambulance_id: 'AMB-108',
+            lat, lon,
+            speed_kmh: speed,
+            route_id: 'route_a'
+          })
+        });
+        const status = await res.json();
+
+        document.getElementById('txBadge').innerText =
+          `📡 TX LIVE: (${lat.toFixed(4)}, ${lon.toFixed(4)}) @ ${speed} km/h`;
+
+        // Highlight ONLY the closest upcoming junction on the map
+        const closest = status.closest_upcoming_junction;
+        Object.keys(junctionMarkers).forEach(jId => {
+          if (status.passed_junctions.includes(jId)) {
+            junctionMarkers[jId].setStyle({ fillColor: '#64748b' }); // Passed (Gray)
+          } else if (closest && closest.id === jId) {
+            junctionMarkers[jId].setStyle({ fillColor: '#10b981', radius: 13 }); // Active Target (Bright Green)
+          } else {
+            junctionMarkers[jId].setStyle({ fillColor: '#ef4444', radius: 9 }); // Standby (Red)
+          }
+        });
+
+        const box = document.getElementById('closestJunctionBox');
+        if (closest) {
+          box.innerHTML = `
+            <div class="text-sm font-bold text-white">${closest.id} — ${closest.name}</div>
+            <div class="flex justify-between text-xs mt-1">
+              <span>Distance to Signal: <strong class="text-cyan-400">${closest.distance_m} m</strong></span>
+              <span>Ambulance ETA: <strong class="text-emerald-400">${closest.eta_sec} sec</strong></span>
+            </div>
+            <div class="text-[11px] text-amber-300 mt-1">
+              ⚡ Only ${closest.id} is receiving active preemption commands right now.
+            </div>
+          `;
+        } else {
+          box.innerHTML = `<div class="text-emerald-400 font-bold">All junctions cleared! Arriving at Hospital.</div>`;
+        }
+      }, 400);
+    }
+
+    async function resetDriverGPS() {
+      if (gpsTimer) clearInterval(gpsTimer);
+      currentStep = 0;
+      await fetch('/api/driver/reset', { method: 'POST' });
+      ambMarker.setLatLng(finePath[0]);
+      Object.values(junctionMarkers).forEach(m => m.setStyle({ fillColor: '#ef4444', radius: 9 }));
+      document.getElementById('txBadge').innerText = '📡 GPS Stream: STANDBY';
+      document.getElementById('closestJunctionBox').innerText = 'Reset complete. Ready to transmit.';
+    }
+
+    initRoutes();
+  </script>
+</body>
+</html>
