@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AURA-EVP // Live Device GPS & Hospital Selector</title>
+  <title>AURA-EVP // Live Device GPS & Hospital Destination Selector</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -31,6 +31,9 @@
       </div>
     </div>
     <div class="flex items-center gap-3">
+      <a href="/driver-voice" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition">
+        🎙️ Voice HUD (/driver-voice) ↗
+      </a>
       <a href="/junction" target="_blank" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition">
         🚦 Open 4-Way Junction View (/junction) ↗
       </a>
@@ -106,7 +109,7 @@
     }).addTo(map);
 
     let hospitalsData = {};
-    let currentOrigin = { lat: 12.9177, lon: 77.6233 }; // Default fallback (Silk Board)
+    let currentOrigin = { lat: 12.9177, lon: 77.6233 };
     let roadPath = [];
     let currentStep = 0;
     let gpsTimer = null;
@@ -117,22 +120,19 @@
     const ambIcon = L.divIcon({ className: '', html: '<div class="amb-dot"></div>', iconSize: [22, 22], iconAnchor: [11, 11] });
 
     async function initApp() {
-      // 1. Get Device Geolocation
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(
           pos => {
             currentOrigin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-            document.getElementById('originTextinnerText') = `${currentOrigin.lat.toFixed(4)}, ${currentOrigin.lon.toFixed(4)} (Live Device GPS)`;
+            document.getElementById('originText').innerText = `${currentOrigin.lat.toFixed(4)}, ${currentOrigin.lon.toFixed(4)} (Live Device GPS)`;
             map.setView([currentOrigin.lat, currentOrigin.lon], 13);
           },
           err => {
-            console.warn("Geolocation permission denied or unavailable. Using default Silk Board origin.");
             document.getElementById('originText').innerText = `12.9177, 77.6233 (Default Silk Board)`;
           }
         );
       }
 
-      // 2. Fetch Hospitals Data
       const res = await fetch('/api/hospitals');
       const data = await res.json();
       hospitalsData = data.hospitals;
@@ -154,11 +154,9 @@
       const h = hospitalsData[hId];
       if (!h) return;
 
-      // Remove previous destination marker if any
       if (destMarker) map.removeLayer(destMarker);
       destMarker = L.marker([h.lat, h.lon]).addTo(map).bindPopup(`<b>${h.name}</b>`).openPopup();
 
-      // Clear previous junction markers
       Object.values(junctionMarkers).forEach(m => map.removeLayer(m));
       junctionMarkers = {};
 
@@ -168,7 +166,6 @@
         }).addTo(map).bindTooltip(`${j.id}: ${j.name}`, { permanent: true, direction: 'right' });
       });
 
-      // Fetch OSRM Route from Live Origin to Selected Hospital
       const url = `https://router.project-osrm.org/route/v1/driving/${currentOrigin.lon},${currentOrigin.lat};${h.lon},${h.lat}?overview=full&geometries=geojson`;
 
       try {
@@ -178,7 +175,6 @@
           const route = data.routes[0];
           roadPath = route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
 
-          // Draw road polyline
           L.polyline(roadPath, { color: '#38bdf8', weight: 6, opacity: 0.9 }).addTo(map);
           map.fitBounds(L.polyline(roadPath).getBounds(), { padding: [40, 40] });
 
