@@ -3,14 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Part 1: Ambulance Driver Live GPS & Congestion Navigation</title>
+  <title>Part 1: Ambulance Driver GPS & Road-Snapped Navigation</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
     body { background: #090d16; color: #f8fafc; font-family: system-ui, sans-serif; }
     #map { height: 100%; width: 100%; border-radius: 1rem; }
-    /* Converts free OpenStreetMap tiles into a sleek Dark Mode map without any API key! */
     .leaflet-tile-pane {
       filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
     }
@@ -27,8 +26,8 @@
     <div class="flex items-center gap-3">
       <span class="h-3 w-3 rounded-full bg-red-500 animate-ping"></span>
       <div>
-        <h1 class="text-base font-bold text-white">PART 1 // Ambulance Driver GPS Transmitter & Smart Route Selector</h1>
-        <p class="text-xs text-slate-400">Live Traffic Congestion Analysis + Sequential Closest-Junction GPS Hand-Off</p>
+        <h1 class="text-base font-bold text-white">PART 1 // Road-Snapped Ambulance GPS Navigation</h1>
+        <p class="text-xs text-slate-400">Powered by OSRM OpenStreetMap Road Routing Engine</p>
       </div>
     </div>
     <div class="flex items-center gap-3">
@@ -42,7 +41,7 @@
   </header>
 
   <div class="flex-1 grid grid-cols-12 gap-3 overflow-hidden">
-    <!-- LEFT: DRIVER PHONE INTERFACE (4 COLS) -->
+    <!-- LEFT: CONTROLS (4 COLS) -->
     <div class="col-span-4 bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between overflow-y-auto">
       <div class="space-y-4">
         <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl">
@@ -51,13 +50,13 @@
           <div class="text-sm font-semibold text-emerald-400 mt-1">🏥 Destination: Manipal Hospital</div>
         </div>
 
-        <!-- LIVE ROUTE CONGESTION COMPARISON -->
         <div>
-          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">1. Live Congestion Path Selection</h2>
-          <div id="routeCards" class="space-y-2.5"></div>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">1. Road-Network Routing Status</h2>
+          <div id="routeStatusCard" class="p-3 rounded-xl border bg-emerald-950/30 border-emerald-500/60 text-xs text-emerald-300">
+            🔄 Fetching turn-by-turn road geometries from OSRM...
+          </div>
         </div>
 
-        <!-- DRIVER GPS TRANSMISSION CONTROLS -->
         <div class="border-t border-slate-800 pt-4">
           <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">2. Live Driver GPS Transmitter</h2>
           <div class="mb-3">
@@ -71,7 +70,7 @@
 
           <div class="flex gap-2">
             <button onclick="startDriverGPS()" class="flex-1 bg-red-600 hover:bg-red-500 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg transition">
-              🚑 Start Live GPS Transmission
+              🚑 Start Road-Snapped GPS
             </button>
             <button onclick="resetDriverGPS()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 rounded-xl text-xs">
               Reset
@@ -80,41 +79,30 @@
         </div>
       </div>
 
-      <!-- SEQUENTIAL JUNCTION HAND-OFF MONITOR -->
       <div class="bg-slate-950 border border-cyan-500/40 rounded-xl p-3.5 mt-4">
         <div class="text-[11px] font-bold uppercase tracking-wider text-cyan-400 mb-2">
           🎯 Active Target Junction (Closest Only)
         </div>
         <div id="closestJunctionBox" class="text-xs text-slate-300 space-y-1">
-          Press "Start Live GPS Transmission" to lock onto the first traffic signal.
+          Press "Start Road-Snapped GPS" to begin simulation.
         </div>
       </div>
     </div>
 
-    <!-- RIGHT: LIVE CONGESTION & NAVIGATION MAP (8 COLS) -->
+    <!-- RIGHT: MAP (8 COLS) -->
     <div class="col-span-8 bg-slate-900 border border-slate-800 rounded-xl p-2 relative">
       <div id="map"></div>
-      <!-- Map Legend -->
-      <div class="absolute bottom-5 right-5 z-[999] bg-slate-950/90 border border-slate-800 rounded-xl p-3 text-xs space-y-1.5">
-        <div class="font-bold text-white mb-1">Live Traffic Congestion Legend</div>
-        <div class="flex items-center gap-2"><span class="w-4 h-1.5 bg-emerald-500 inline-block rounded"></span> Free Flow / Clearable</div>
-        <div class="flex items-center gap-2"><span class="w-4 h-1.5 bg-amber-500 inline-block rounded"></span> Moderate Traffic (Preemptable)</div>
-        <div class="flex items-center gap-2"><span class="w-4 h-1.5 bg-red-500 inline-block rounded"></span> Severe Gridlock (Avoided by AI)</div>
-      </div>
     </div>
   </div>
 
   <script>
     const map = L.map('map').setView([12.9400, 77.6300], 13);
-    
-    // Official Free OpenStreetMap Tile Server with Dark Mode filter (No API key needed!)
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap'
     }).addTo(map);
 
-    let routesData = {};
-    let finePath = [];
+    let roadPath = []; // Snapped road coordinates [lat, lon]
     let currentStep = 0;
     let gpsTimer = null;
     let ambMarker = null;
@@ -122,76 +110,74 @@
 
     const ambIcon = L.divIcon({ className: '', html: '<div class="amb-dot"></div>', iconSize: [22, 22], iconAnchor: [11, 11] });
 
-    function interpolateWaypoints(waypoints, stepsPerLeg = 30) {
-      const pts = [];
-      for (let i = 0; i < waypoints.length - 1; i++) {
-        const [lat1, lon1] = waypoints[i];
-        const [lat2, lon2] = waypoints[i + 1];
-        for (let s = 0; s < stepsPerLeg; s++) {
-          const t = s / stepsPerLeg;
-          pts.push([lat1 + (lat2 - lat1) * t, lon1 + (lon2 - lon1) * t]);
+    // Key waypoints along Bengaluru corridor
+    const waypoints = [
+      [77.6233, 12.9177], // Silk Board [lon, lat for OSRM]
+      [77.6375, 12.9234], // Agara Junction J1
+      [77.6267, 12.9385], // Sony World J2
+      [77.6365, 12.9535], // Ejipura J3
+      [77.6387, 12.9610], // Domlur J4
+      [77.6482, 12.9592]  // Manipal Hospital
+    ];
+
+    async function loadRoadSnappedRoute() {
+      // Format coordinates for OSRM API: {lon},{lat};{lon},{lat}...
+      const coordsString = waypoints.map(pt => `${pt[0]},${pt[1]}`).join(';');
+      const url = `https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson`;
+
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.routes && data.routes.length > 0) {
+          const route = data.routes[0];
+          // OSRM GeoJSON returns [lon, lat], Leaflet needs [lat, lon]
+          roadPath = route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
+
+          // Draw road-snapped polyline
+          L.polyline(roadPath, { color: '#38bdf8', weight: 6, opacity: 0.85 }).addTo(map);
+          map.fitBounds(L.polyline(roadPath).getBounds(), { padding: [40, 40] });
+
+          document.getElementById('routeStatusCard').innerHTML = `
+            ✅ Road-Snapped Route Loaded Successfully!<br>
+            <span class="font-mono text-white">Distance: ${(route.distance / 1000).toFixed(1)} km</span>
+          `;
+
+          // Place Junction Markers on Map
+          const jList = [
+            { id: 'J1', name: 'Agara Signal', lat: 12.9234, lon: 77.6375 },
+            { id: 'J2', name: 'Sony World Signal', lat: 12.9385, lon: 77.6267 },
+            { id: 'J3', name: 'Ejipura Signal', lat: 12.9535, lon: 77.6365 },
+            { id: 'J4', name: 'Domlur Signal', lat: 12.9610, lon: 77.6387 }
+          ];
+
+          jList.forEach(j => {
+            junctionMarkers[j.id] = L.circleMarker([j.lat, j.lon], {
+              radius: 9, fillColor: '#ef4444', color: '#fff', weight: 2, fillOpacity: 1
+            }).addTo(map).bindTooltip(`${j.id}: ${j.name}`, { permanent: true, direction: 'right' });
+          });
+
+          ambMarker = L.marker(roadPath[0], { icon: ambIcon }).addTo(map);
         }
+      } catch (err) {
+        document.getElementById('routeStatusCard').innerText = '⚠️ Failed to fetch road route. Check internet connection.';
       }
-      pts.push(waypoints[waypoints.length - 1]);
-      return pts;
-    }
-
-    async function initRoutes() {
-      const res = await fetch('/api/routes');
-      const data = await res.json();
-      routesData = data.routes;
-
-      const container = document.getElementById('routeCards');
-      container.innerHTML = '';
-
-      Object.values(routesData).forEach(r => {
-        r.congestion_segments.forEach(seg => {
-          L.polyline(seg.coords, {
-            color: seg.color,
-            weight: r.is_best_path ? 6 : 4,
-            opacity: r.is_best_path ? 0.9 : 0.45,
-            dashArray: r.is_best_path ? null : '6, 8'
-          }).addTo(map);
-        });
-
-        r.junctions.forEach(j => {
-          junctionMarkers[j.id] = L.circleMarker([j.lat, j.lon], {
-            radius: 9, fillColor: '#ef4444', color: '#fff', weight: 2, fillOpacity: 1
-          }).addTo(map).bindTooltip(`${j.id}: ${j.name}`, { permanent: true, direction: 'right' });
-        });
-
-        const card = document.createElement('div');
-        card.className = `p-3 rounded-xl border ${r.is_best_path ? 'bg-emerald-950/30 border-emerald-500/60' : 'bg-slate-950 border-slate-800 opacity-75'}`;
-        card.innerHTML = `
-          <div class="flex items-center justify-between mb-1">
-            <span class="text-xs font-bold ${r.is_best_path ? 'text-emerald-400' : 'text-rose-400'}">
-              ${r.is_best_path ? '✅ AI SELECTED BEST PATH' : '❌ AVOIDED (GRIDLOCK)'}
-            </span>
-            <span class="text-xs font-mono text-white">${r.estimated_time_min} mins (${r.total_distance_km} km)</span>
-          </div>
-          <div class="text-xs font-semibold text-white mb-1">${r.name}</div>
-          <div class="text-[11px] text-slate-400">${r.reason}</div>
-        `;
-        container.appendChild(card);
-      });
-
-      finePath = interpolateWaypoints(routesData.route_a.waypoints, 28);
-      ambMarker = L.marker(finePath[0], { icon: ambIcon }).addTo(map);
     }
 
     function startDriverGPS() {
+      if (roadPath.length === 0) return;
       if (gpsTimer) clearInterval(gpsTimer);
+
       gpsTimer = setInterval(async () => {
-        if (currentStep >= finePath.length - 1) {
+        if (currentStep >= roadPath.length - 1) {
           clearInterval(gpsTimer);
           document.getElementById('txBadge').innerText = '🏥 DESTINATION REACHED';
           return;
         }
         const speed = parseFloat(document.getElementById('speedInput').value);
-        const stepAdvance = Math.max(1, Math.round(speed / 45));
-        currentStep = Math.min(finePath.length - 1, currentStep + stepAdvance);
+        const stepAdvance = Math.max(1, Math.round(speed / 40));
+        currentStep = Math.min(roadPath.length - 1, currentStep + stepAdvance);
 
-        const [lat, lon] = finePath[currentStep];
+        const [lat, lon] = roadPath[currentStep];
         ambMarker.setLatLng([lat, lon]);
 
         const res = await fetch('/api/driver/gps', {
@@ -242,13 +228,13 @@
       if (gpsTimer) clearInterval(gpsTimer);
       currentStep = 0;
       await fetch('/api/driver/reset', { method: 'POST' });
-      ambMarker.setLatLng(finePath[0]);
+      if (roadPath.length > 0) ambMarker.setLatLng(roadPath[0]);
       Object.values(junctionMarkers).forEach(m => m.setStyle({ fillColor: '#ef4444', radius: 9 }));
       document.getElementById('txBadge').innerText = '📡 GPS Stream: STANDBY';
       document.getElementById('closestJunctionBox').innerText = 'Reset complete. Ready to transmit.';
     }
 
-    initRoutes();
+    loadRoadSnappedRoute();
   </script>
 </body>
 </html>
