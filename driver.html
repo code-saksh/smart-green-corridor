@@ -10,6 +10,10 @@
   <style>
     body { background: #090d16; color: #f8fafc; font-family: system-ui, sans-serif; }
     #map { height: 100%; width: 100%; border-radius: 1rem; }
+    /* Converts free OpenStreetMap tiles into a sleek Dark Mode map without any API key! */
+    .leaflet-tile-pane {
+      filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+    }
     .amb-dot {
       width: 22px; height: 22px; background: #ef4444; border: 3px solid #fff;
       border-radius: 50%; box-shadow: 0 0 15px #ef4444;
@@ -27,8 +31,13 @@
         <p class="text-xs text-slate-400">Live Traffic Congestion Analysis + Sequential Closest-Junction GPS Hand-Off</p>
       </div>
     </div>
-    <div id="txBadge" class="bg-slate-950 border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-mono text-slate-400">
-      📡 GPS Stream: STANDBY
+    <div class="flex items-center gap-3">
+      <a href="/junction" target="_blank" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition">
+        🚦 Open 4-Way Junction View (/junction) ↗
+      </a>
+      <div id="txBadge" class="bg-slate-950 border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-mono text-slate-400">
+        📡 GPS Stream: STANDBY
+      </div>
     </div>
   </header>
 
@@ -97,7 +106,12 @@
 
   <script>
     const map = L.map('map').setView([12.9400, 77.6300], 13);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+    
+    // Official Free OpenStreetMap Tile Server with Dark Mode filter (No API key needed!)
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
 
     let routesData = {};
     let finePath = [];
@@ -131,7 +145,6 @@
       container.innerHTML = '';
 
       Object.values(routesData).forEach(r => {
-        // Draw congestion segments on map
         r.congestion_segments.forEach(seg => {
           L.polyline(seg.coords, {
             color: seg.color,
@@ -141,14 +154,12 @@
           }).addTo(map);
         });
 
-        // Draw junctions on best route
         r.junctions.forEach(j => {
           junctionMarkers[j.id] = L.circleMarker([j.lat, j.lon], {
             radius: 9, fillColor: '#ef4444', color: '#fff', weight: 2, fillOpacity: 1
           }).addTo(map).bindTooltip(`${j.id}: ${j.name}`, { permanent: true, direction: 'right' });
         });
 
-        // Render Route Selection Card
         const card = document.createElement('div');
         card.className = `p-3 rounded-xl border ${r.is_best_path ? 'bg-emerald-950/30 border-emerald-500/60' : 'bg-slate-950 border-slate-800 opacity-75'}`;
         card.innerHTML = `
@@ -183,7 +194,6 @@
         const [lat, lon] = finePath[currentStep];
         ambMarker.setLatLng([lat, lon]);
 
-        // Transmit Live GPS Packet to Authority Server
         const res = await fetch('/api/driver/gps', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -199,15 +209,14 @@
         document.getElementById('txBadge').innerText =
           `📡 TX LIVE: (${lat.toFixed(4)}, ${lon.toFixed(4)}) @ ${speed} km/h`;
 
-        // Highlight ONLY the closest upcoming junction on the map
         const closest = status.closest_upcoming_junction;
         Object.keys(junctionMarkers).forEach(jId => {
           if (status.passed_junctions.includes(jId)) {
-            junctionMarkers[jId].setStyle({ fillColor: '#64748b' }); // Passed (Gray)
+            junctionMarkers[jId].setStyle({ fillColor: '#64748b' });
           } else if (closest && closest.id === jId) {
-            junctionMarkers[jId].setStyle({ fillColor: '#10b981', radius: 13 }); // Active Target (Bright Green)
+            junctionMarkers[jId].setStyle({ fillColor: '#10b981', radius: 13 });
           } else {
-            junctionMarkers[jId].setStyle({ fillColor: '#ef4444', radius: 9 }); // Standby (Red)
+            junctionMarkers[jId].setStyle({ fillColor: '#ef4444', radius: 9 });
           }
         });
 
