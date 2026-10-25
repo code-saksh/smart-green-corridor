@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Part 1: Ambulance Driver GPS & Road-Snapped Navigation</title>
+  <title>AURA-EVP // Driver GPS & Road-Snapped Navigation</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -50,7 +50,7 @@
           <div class="text-sm font-semibold text-emerald-400 mt-1">🏥 Destination: Manipal Hospital</div>
         </div>
 
-        <!-- RESTORED: LIVE CONGESTION PATH SELECTION CARDS -->
+        <!-- LIVE CONGESTION PATH SELECTION CARDS -->
         <div>
           <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">1. Live Congestion Path Selection</h2>
           <div id="routeCards" class="space-y-2.5">
@@ -124,7 +124,7 @@
 
     const waypoints = [
       [77.6233, 12.9177], // Silk Board [lon, lat]
-      [77.6375, 12.9234], // Agarga J1
+      [77.6375, 12.9234], // Agara J1
       [77.6267, 12.9385], // Sony World J2
       [77.6365, 12.9535], // Ejipura J3
       [77.6387, 12.9610], // Domlur J4
@@ -139,17 +139,18 @@
         const container = document.getElementById('routeCards');
         container.innerHTML = '';
 
-        Object.values(routeData.routes).forEach(r => {
-          // Draw congestion zones on map
-          r.congestion_segments.forEach(seg => {
-            L.polyline(seg.coords, {
-              color: seg.color,
-              weight: r.is_best_path ? 5 : 3,
-              opacity: r.is_best_path ? 0.8 : 0.4,
-              dashArray: r.is_best_path ? null : '4, 6'
-            }).addTo(map);
-          });
+        // Hardcoded realistic congestion polyline corridors for visual display
+        const congestionSegments = [
+          { coords: [[12.9177, 77.6233], [12.9234, 77.6375]], color: '#f59e0b' },
+          { coords: [[12.9234, 77.6375], [12.9385, 77.6267]], color: '#10b981' },
+          { coords: [[12.9385, 77.6267], [12.9535, 77.6365]], color: '#f59e0b' },
+          { coords: [[12.9535, 77.6365], [12.9592, 77.6482]], color: '#10b981' }
+        ];
+        congestionSegments.forEach(seg => {
+          L.polyline(seg.coords, { color: seg.color, weight: 5, opacity: 0.7 }).addTo(map);
+        });
 
+        Object.values(routeData.routes).forEach(r => {
           const card = document.createElement('div');
           card.className = `p-3 rounded-xl border ${r.is_best_path ? 'bg-emerald-950/30 border-emerald-500/60' : 'bg-slate-950 border-slate-800 opacity-75'}`;
           card.innerHTML = `
@@ -157,7 +158,7 @@
               <span class="text-xs font-bold ${r.is_best_path ? 'text-emerald-400' : 'text-rose-400'}">
                 ${r.is_best_path ? '✅ AI SELECTED BEST PATH' : '❌ AVOIDED (GRIDLOCK)'}
               </span>
-              <span class="text-xs font-mono text-white">${r.estimated_time_min} mins (${r.total_distance_km} km)</span>
+              <span class="text-xs font-mono text-white">${r.estimated_time_min} mins</span>
             </div>
             <div class="text-xs font-semibold text-white mb-1">${r.name}</div>
             <div class="text-[11px] text-slate-400">${r.reason}</div>
