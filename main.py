@@ -105,8 +105,8 @@ async def get_hospitals():
 @app.post("/api/driver/gps")
 async def receive_driver_gps(packet: LiveGPSPacket):
     """
-    Receives live device GPS, checks proximity strictly along the active route,
-    and locks onto the correct upcoming junction.
+    Receives live device GPS, calculates distances to ALL junctions on the selected hospital route,
+    and strictly targets the one with the minimum distance ahead of the ambulance.
     """
     live_state["active"] = True
     live_state["ambulance_id"] = packet.ambulance_id
@@ -118,27 +118,23 @@ async def receive_driver_gps(packet: LiveGPSPacket):
 
     selected_hospital = HOSPITALS.get(packet.destination_id, HOSPITALS["manipal_old_airport"])
     junctions = selected_hospital["corridor_junctions"]
-    upcoming = None
 
+    # Calculate distance to all unpassed junctions and pick the absolute closest one
+    valid_junctions = []
     for j in junctions:
         dist = haversine_m(packet.lat, packet.lon, j["lat"], j["lon"])
         
-        # FIX: Only consider a junction if the ambulance is within a reasonable corridor range (e.g., < 3500 meters) 
-        # AND hasn't already been passed. This prevents distant out-of-route junctions from triggering.
-        if dist < 40.0 and j["id"] not in live_state["passed_junctions"]:
+        # Mark as passed if within 35 meters
+        if dist < 35.0 and j["id"] not in live_state["passed_junctions"]:
             live_state["passed_junctions"].append(j["id"])
 
-        if j["id"] not in live_state["passed_junctions"] and dist < 4000.0:
-            upcoming = (j, dist)
-            break  # Pick the first valid upcoming junction in sequence
+        if j["id"] not in live_state["passed_junctions"]:
+            valid_junctions.append((j, dist))
 
-    # If no junction is within range, default to the first unpassed junction in the list
-    if not upcoming:
-        for j in junctions:
-            if j["id"] not in live_state["passed_junctions"]:
-                dist = haversine_m(packet.lat, packet.lon, j["lat"], j["lon"])
-                upcoming = (j, dist)
-                break
+    # Sort unpassed junctions by distance so the closest one is always index 0
+    valid_junctions.sort(key=lambda x: x[1])
+
+    upcoming = valid_junctions[0] if valid_junctions else None
 
     if upcoming:
         j_cfg, dist_m = upcoming
@@ -159,7 +155,7 @@ async def receive_driver_gps(packet: LiveGPSPacket):
         signals = {"NORTH": "RED", "SOUTH": "RED", "EAST": "RED", "WEST": "RED"}
 
         if eta_sec <= trigger_sec - yellow_buffer:
-            phase = "GREEN_CORRIDOR_ACTIVE"
+            phase = "GREEN_CORRIDor_ACTIVE"
             signals[amb_lane] = "GREEN"
             progress_ratio = max(0.0, min(1.0, eta_sec / max(t_clear, 1.0)))
             lanes[amb_lane] = max(0, int(queue_in_amb_lane * progress_ratio))
