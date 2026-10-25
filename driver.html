@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AURA-EVP // Driver GPS & Road-Snapped Navigation</title>
+  <title>AURA-EVP // Live Device GPS & Hospital Selector</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -26,8 +26,8 @@
     <div class="flex items-center gap-3">
       <span class="h-3 w-3 rounded-full bg-red-500 animate-ping"></span>
       <div>
-        <h1 class="text-base font-bold text-white">PART 1 // Road-Snapped Ambulance GPS & Smart Route Selector</h1>
-        <p class="text-xs text-slate-400">OSRM Real-Road Mapping + Live Congestion Analysis + Sequential Junction Hand-Off</p>
+        <h1 class="text-base font-bold text-white">DRIVER APP // Live Device GPS & Hospital Destination Selector</h1>
+        <p class="text-xs text-slate-400">Uses your device's actual geolocation as origin + OSRM Road Routing</p>
       </div>
     </div>
     <div class="flex items-center gap-3">
@@ -41,28 +41,26 @@
   </header>
 
   <div class="flex-1 grid grid-cols-12 gap-3 overflow-hidden">
-    <!-- LEFT: CONTROLS & CONGESTION CARDS (4 COLS) -->
+    <!-- LEFT PANEL (4 COLS) -->
     <div class="col-span-4 bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between overflow-y-auto">
       <div class="space-y-4">
-        <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl">
-          <div class="text-[11px] uppercase text-slate-400 font-bold mb-1">Emergency Trip Route</div>
-          <div class="text-sm font-semibold text-white">📍 Origin: Silk Board Junction</div>
-          <div class="text-sm font-semibold text-emerald-400 mt-1">🏥 Destination: Manipal Hospital</div>
-        </div>
-
-        <!-- LIVE CONGESTION PATH SELECTION CARDS -->
-        <div>
-          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">1. Live Congestion Path Selection</h2>
-          <div id="routeCards" class="space-y-2.5">
-            <div class="p-3 rounded-xl border bg-slate-950 border-slate-800 text-xs text-slate-400">
-              Loading congestion routes...
-            </div>
+        <!-- ORIGIN & HOSPITAL SELECTOR -->
+        <div class="bg-slate-950 border border-slate-800 p-3.5 rounded-xl space-y-3">
+          <div>
+            <div class="text-[11px] uppercase text-slate-400 font-bold mb-1">📍 Origin (Live Device GPS)</div>
+            <div id="originText" class="text-xs font-mono text-cyan-400">Fetching device location...</div>
+          </div>
+          <div>
+            <label class="text-[11px] uppercase text-slate-400 font-bold block mb-1">🏥 Select Hospital Destination</label>
+            <select id="hospitalSelect" onchange="onHospitalChange()" class="w-full bg-slate-900 border border-slate-700 text-xs text-white p-2 rounded-lg">
+              <!-- Populated dynamically -->
+            </select>
           </div>
         </div>
 
-        <!-- DRIVER GPS TRANSMITTER CONTROLS -->
+        <!-- TRANSMITTER CONTROLS -->
         <div class="border-t border-slate-800 pt-4">
-          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">2. Live Driver GPS Transmitter</h2>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Live GPS Transmitter</h2>
           <div class="mb-3">
             <label class="text-xs text-slate-300 flex justify-between mb-1">
               <span>Ambulance Speed:</span>
@@ -73,23 +71,23 @@
           </div>
 
           <div class="flex gap-2">
-            <button onclick="startDriverGPS()" class="flex-1 bg-red-600 hover:bg-red-500 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg transition">
-              🚑 Start Live GPS Transmission
+            <button onclick="startLiveGPSStream()" class="flex-1 bg-red-600 hover:bg-red-500 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg transition">
+              🚑 Start Live Device GPS
             </button>
-            <button onclick="resetDriverGPS()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 rounded-xl text-xs">
+            <button onclick="resetTrip()" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2.5 rounded-xl text-xs">
               Reset
             </button>
           </div>
         </div>
       </div>
 
-      <!-- SEQUENTIAL JUNCTION HAND-OFF MONITOR -->
+      <!-- JUNCTION HAND-OFF MONITOR -->
       <div class="bg-slate-950 border border-cyan-500/40 rounded-xl p-3.5 mt-4">
         <div class="text-[11px] font-bold uppercase tracking-wider text-cyan-400 mb-2">
           🎯 Active Target Junction (Closest Only)
         </div>
         <div id="closestJunctionBox" class="text-xs text-slate-300 space-y-1">
-          Press "Start Live GPS Transmission" to lock onto the first traffic signal.
+          Select destination and click Start Live Device GPS.
         </div>
       </div>
     </div>
@@ -97,79 +95,81 @@
     <!-- RIGHT: MAP (8 COLS) -->
     <div class="col-span-8 bg-slate-900 border border-slate-800 rounded-xl p-2 relative">
       <div id="map"></div>
-      <!-- Map Legend -->
-      <div class="absolute bottom-5 right-5 z-[999] bg-slate-950/90 border border-slate-800 rounded-xl p-3 text-xs space-y-1.5">
-        <div class="font-bold text-white mb-1">Live Traffic Congestion Legend</div>
-        <div class="flex items-center gap-2"><span class="w-4 h-1.5 bg-emerald-500 inline-block rounded"></span> Free Flow / Clearable</div>
-        <div class="flex items-center gap-2"><span class="w-4 h-1.5 bg-amber-500 inline-block rounded"></span> Moderate Traffic (Preemptable)</div>
-        <div class="flex items-center gap-2"><span class="w-4 h-1.5 bg-red-500 inline-block rounded"></span> Severe Gridlock (Avoided by AI)</div>
-      </div>
     </div>
   </div>
 
   <script>
-    const map = L.map('map').setView([12.9400, 77.6300], 13);
+    const map = L.map('map').setView([12.9300, 77.6200], 13);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap'
     }).addTo(map);
 
+    let hospitalsData = {};
+    let currentOrigin = { lat: 12.9177, lon: 77.6233 }; // Default fallback (Silk Board)
     let roadPath = [];
     let currentStep = 0;
     let gpsTimer = null;
     let ambMarker = null;
+    let destMarker = null;
     let junctionMarkers = {};
 
     const ambIcon = L.divIcon({ className: '', html: '<div class="amb-dot"></div>', iconSize: [22, 22], iconAnchor: [11, 11] });
 
-    const waypoints = [
-      [77.6233, 12.9177], // Silk Board [lon, lat]
-      [77.6375, 12.9234], // Agara J1
-      [77.6267, 12.9385], // Sony World J2
-      [77.6365, 12.9535], // Ejipura J3
-      [77.6387, 12.9610], // Domlur J4
-      [77.6482, 12.9592]  // Manipal Hospital
-    ];
+    async function initApp() {
+      // 1. Get Device Geolocation
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          pos => {
+            currentOrigin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+            document.getElementById('originTextinnerText') = `${currentOrigin.lat.toFixed(4)}, ${currentOrigin.lon.toFixed(4)} (Live Device GPS)`;
+            map.setView([currentOrigin.lat, currentOrigin.lon], 13);
+          },
+          err => {
+            console.warn("Geolocation permission denied or unavailable. Using default Silk Board origin.");
+            document.getElementById('originText').innerText = `12.9177, 77.6233 (Default Silk Board)`;
+          }
+        );
+      }
 
-    async function initSystem() {
-      // 1. Fetch Congestion Routes Data for Left Panel Cards
-      try {
-        const routeRes = await fetch('/api/routes');
-        const routeData = await routeRes.json();
-        const container = document.getElementById('routeCards');
-        container.innerHTML = '';
+      // 2. Fetch Hospitals Data
+      const res = await fetch('/api/hospitals');
+      const data = await res.json();
+      hospitalsData = data.hospitals;
 
-        // Hardcoded realistic congestion polyline corridors for visual display
-        const congestionSegments = [
-          { coords: [[12.9177, 77.6233], [12.9234, 77.6375]], color: '#f59e0b' },
-          { coords: [[12.9234, 77.6375], [12.9385, 77.6267]], color: '#10b981' },
-          { coords: [[12.9385, 77.6267], [12.9535, 77.6365]], color: '#f59e0b' },
-          { coords: [[12.9535, 77.6365], [12.9592, 77.6482]], color: '#10b981' }
-        ];
-        congestionSegments.forEach(seg => {
-          L.polyline(seg.coords, { color: seg.color, weight: 5, opacity: 0.7 }).addTo(map);
-        });
+      const select = document.getElementById('hospitalSelect');
+      select.innerHTML = '';
+      Object.entries(hospitalsData).forEach(([id, h]) => {
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.innerText = h.name;
+        select.appendChild(opt);
+      });
 
-        Object.values(routeData.routes).forEach(r => {
-          const card = document.createElement('div');
-          card.className = `p-3 rounded-xl border ${r.is_best_path ? 'bg-emerald-950/30 border-emerald-500/60' : 'bg-slate-950 border-slate-800 opacity-75'}`;
-          card.innerHTML = `
-            <div class="flex items-center justify-between mb-1">
-              <span class="text-xs font-bold ${r.is_best_path ? 'text-emerald-400' : 'text-rose-400'}">
-                ${r.is_best_path ? '✅ AI SELECTED BEST PATH' : '❌ AVOIDED (GRIDLOCK)'}
-              </span>
-              <span class="text-xs font-mono text-white">${r.estimated_time_min} mins</span>
-            </div>
-            <div class="text-xs font-semibold text-white mb-1">${r.name}</div>
-            <div class="text-[11px] text-slate-400">${r.reason}</div>
-          `;
-          container.appendChild(card);
-        });
-      } catch (e) {}
+      loadRouteForSelectedHospital();
+    }
 
-      // 2. Fetch OSRM Road-Snapped Route Geometry
-      const coordsString = waypoints.map(pt => `${pt[0]},${pt[1]}`).join(';');
-      const url = `https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson`;
+    async function loadRouteForSelectedHospital() {
+      const hId = document.getElementById('hospitalSelect').value;
+      const h = hospitalsData[hId];
+      if (!h) return;
+
+      // Remove previous destination marker if any
+      if (destMarker) map.removeLayer(destMarker);
+      destMarker = L.marker([h.lat, h.lon]).addTo(map).bindPopup(`<b>${h.name}</b>`).openPopup();
+
+      // Clear previous junction markers
+      Object.values(junctionMarkers).forEach(m => map.removeLayer(m));
+      junctionMarkers = {};
+
+      h.corridor_junctions.forEach(j => {
+        junctionMarkers[j.id] = L.circleMarker([j.lat, j.lon], {
+          radius: 9, fillColor: '#ef4444', color: '#fff', weight: 2, fillOpacity: 1
+        }).addTo(map).bindTooltip(`${j.id}: ${j.name}`, { permanent: true, direction: 'right' });
+      });
+
+      // Fetch OSRM Route from Live Origin to Selected Hospital
+      const url = `https://router.project-osrm.org/route/v1/driving/${currentOrigin.lon},${currentOrigin.lat};${h.lon},${h.lat}?overview=full&geometries=geojson`;
 
       try {
         const res = await fetch(url);
@@ -178,30 +178,26 @@
           const route = data.routes[0];
           roadPath = route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
 
+          // Draw road polyline
           L.polyline(roadPath, { color: '#38bdf8', weight: 6, opacity: 0.9 }).addTo(map);
           map.fitBounds(L.polyline(roadPath).getBounds(), { padding: [40, 40] });
 
-          const jList = [
-            { id: 'J1', name: 'Agara Signal', lat: 12.9234, lon: 77.6375 },
-            { id: 'J2', name: 'Sony World Signal', lat: 12.9385, lon: 77.6267 },
-            { id: 'J3', name: 'Ejipura Signal', lat: 12.9535, lon: 77.6365 },
-            { id: 'J4', name: 'Domlur Signal', lat: 12.9610, lon: 77.6387 }
-          ];
-
-          jList.forEach(j => {
-            junctionMarkers[j.id] = L.circleMarker([j.lat, j.lon], {
-              radius: 9, fillColor: '#ef4444', color: '#fff', weight: 2, fillOpacity: 1
-            }).addTo(map).bindTooltip(`${j.id}: ${j.name}`, { permanent: true, direction: 'right' });
-          });
-
+          if (ambMarker) map.removeLayer(ambMarker);
           ambMarker = L.marker(roadPath[0], { icon: ambIcon }).addTo(map);
         }
-      } catch (err) {}
+      } catch (e) {}
     }
 
-    function startDriverGPS() {
+    function onHospitalChange() {
+      currentStep = 0;
+      loadRouteForSelectedHospital();
+    }
+
+    function startLiveGPSStream() {
       if (roadPath.length === 0) return;
       if (gpsTimer) clearInterval(gpsTimer);
+
+      const hId = document.getElementById('hospitalSelect').value;
 
       gpsTimer = setInterval(async () => {
         if (currentStep >= roadPath.length - 1) {
@@ -223,7 +219,7 @@
             ambulance_id: 'AMB-108',
             lat, lon,
             speed_kmh: speed,
-            route_id: 'route_a'
+            destination_id: hId
           })
         });
         const status = await res.json();
@@ -233,7 +229,7 @@
 
         const closest = status.closest_upcoming_junction;
         Object.keys(junctionMarkers).forEach(jId => {
-          if (status.passed_junctions.includes(jId)) {
+          if (status.passed_junctions && status.passed_junctions.includes(jId)) {
             junctionMarkers[jId].setStyle({ fillColor: '#64748b' });
           } else if (closest && closest.id === jId) {
             junctionMarkers[jId].setStyle({ fillColor: '#10b981', radius: 13 });
@@ -250,9 +246,6 @@
               <span>Distance to Signal: <strong class="text-cyan-400">${closest.distance_m} m</strong></span>
               <span>Ambulance ETA: <strong class="text-emerald-400">${closest.eta_sec} sec</strong></span>
             </div>
-            <div class="text-[11px] text-amber-300 mt-1">
-              ⚡ Only ${closest.id} is receiving active preemption commands right now.
-            </div>
           `;
         } else {
           box.innerHTML = `<div class="text-emerald-400 font-bold">All junctions cleared! Arriving at Hospital.</div>`;
@@ -260,17 +253,16 @@
       }, 400);
     }
 
-    async function resetDriverGPS() {
+    async function resetTrip() {
       if (gpsTimer) clearInterval(gpsTimer);
       currentStep = 0;
       await fetch('/api/driver/reset', { method: 'POST' });
-      if (roadPath.length > 0) ambMarker.setLatLng(roadPath[0]);
-      Object.values(junctionMarkers).forEach(m => m.setStyle({ fillColor: '#ef4444', radius: 9 }));
+      loadRouteForSelectedHospital();
       document.getElementById('txBadge').innerText = '📡 GPS Stream: STANDBY';
       document.getElementById('closestJunctionBox').innerText = 'Reset complete. Ready to transmit.';
     }
 
-    initSystem();
+    initApp();
   </script>
 </body>
 </html>
