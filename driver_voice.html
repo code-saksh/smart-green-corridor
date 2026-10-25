@@ -100,20 +100,21 @@
       attribution: '&copy; OpenStreetMap'
     }).addTo(map);
 
+    const routeLayerGroup = L.layerGroup().addTo(map);
+
     let hospitalsData = {};
     let bengaluruSignals = [];
     let selectedHospitalId = 'manipal_old_airport';
     let currentOrigin = { lat: 12.8626, lon: 77.5756 };
     let roadPath = [];
-    let routePolyline = null;
     let routeJunctions = [];
     let currentStep = 0;
     let gpsTimer = null;
     let ambMarker = null;
-    let destMarker = null;
     let junctionMarkers = {};
     let recognition = null;
     let isListening = true;
+    let activeRouteLoadId = 0;
 
     const ambIcon = L.divIcon({ className: '', html: '<div class="amb-dot"></div>', iconSize: [22, 22], iconAnchor: [11, 11] });
 
@@ -123,7 +124,7 @@
       const dLat = toRad(lat2 - lat1);
       const dLon = toRad(lon2 - lon1);
       const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-      return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return 2 * R * Math.atan2(math.sqrt(a), Math.sqrt(1 - a));
     }
 
     async function initApp() {
@@ -140,7 +141,8 @@
           },
           err => {
             loadRouteForHospital(selectedHospitalId);
-          }
+          },
+          { timeout: 5000 }
         );
       } else {
         loadRouteForHospital(selectedHospitalId);
@@ -155,28 +157,28 @@
       if (!h) return;
 
       document.getElementById('currentDestLabel').innerText = h.name;
-
-      if (destMarker) map.removeLayer(destMarker);
-      destMarker = L.marker([h.lat, h.lon]).addTo(map).bindPopup(`<b>${h.name}</b>`).openPopup();
-
-      if (routePolyline) map.removeLayer(routePolyline);
-      Object.values(junctionMarkers).forEach(m => map.removeLayer(m));
-      junctionMarkers = {};
-      routeJunctions = [];
+      const myLoadId = ++activeRouteLoadId;
 
       const url = `https://router.project-osrm.org/route/v1/driving/${currentOrigin.lon},${currentOrigin.lat};${h.lon},${h.lat}?overview=full&geometries=geojson`;
       try {
         const res = await fetch(url);
         const data = await res.json();
+
+        if (myLoadId !== activeRouteLoadId) return;
+
+        routeLayerGroup.clearLayers();
+        junctionMarkers = {};
+        routeJunctions = [];
+
         if (data.routes && data.routes.length > 0) {
           const route = data.routes[0];
           roadPath = route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
 
-          routePolyline = L.polyline(roadPath, { color: '#38bdf8', weight: 6, opacity: 0.9 }).addTo(map);
-          map.fitBounds(routePolyline.getBounds(), { padding: [40, 40] });
+          const routePolyline = L.polyline(roadPath, { color: '#38bdf8', weight: 6, opacity: 0.9 }).addTo(routeLayerGroup);
+          L.marker([h.lat, h.lon]).addTo(routeLayerGroup).bindPopup(`<b>🏥 ${h.name}</b>`).openPopup();
+          ambMarker = L.marker(roadPath[0], { icon: ambIcon }).addTo(routeLayerGroup);
 
-          if (ambMarker) map.removeLayer(ambMarker);
-          ambMarker = L.marker(roadPath[0], { icon: ambIcon }).addTo(map);
+          map.fitBounds(routePolyline.getBounds(), { padding: [40, 40] });
 
           bengaluruSignals.forEach(sig => {
             let minDist = Infinity;
@@ -190,7 +192,10 @@
               }
             });
 
-            if (minDist <= 850) {
+            const distToHospital = haversineM(sig.lat, sig.lon, h.lat, h.lon);
+            const isStrictlyBeforeDestination = (closestIdx < roadPath.length - 3) && (distToHospital > 120);
+
+            if (minDist <= 150 && isStrictlyBeforeDestination) {
               routeJunctions.push({
                 origId: sig.id,
                 name: sig.name,
@@ -199,9 +204,9 @@
                 pathIndex: closestIdx
               });
             } else {
-              junctionMarkers[sig.id] = L.circleMarker([sig.lat, sig.lon], {
-                radius: 4, fillColor: '#f59e0b', color: '#78350f', weight: 1, fillOpacity: 0.45
-              }).addTo(map).bindTooltip(`${sig.id}: ${sig.name} (City Grid)`, { permanent: false, direction: 'right' });
+              L.circleMarker([sig.lat, sig.lon], {
+                radius: 4, fillColor: '#f59e0b', color: '#78350f', weight: 1, fillOpacity: 0.35
+              }).addTo(routeLayerGroup).bindTooltip(`${sig.id}: ${sig.name} (Off-Route)`, { permanent: false, direction: 'right' });
             }
           });
 
@@ -211,8 +216,16 @@
             rj.id = `J${idx + 1}`;
             junctionMarkers[rj.id] = L.circleMarker([rj.lat, rj.lon], {
               radius: 8, fillColor: '#ef4444', color: '#ffffff', weight: 2, fillOpacity: 1
-            }).addTo(map).bindTooltip(`<b>${rj.id}: ${rj.name}</b>`, { permanent: true, direction: 'right' });
+            }).addTo(routeLayerGroup).bindTooltip(`<b>${rj.id}: ${rj.name}</b>`, { permanent: true, direction: 'right' });
           });
+
+          const box = document.getElementById('closestJunctionBox');
+          if (routeJunctions.length > 0) {
+            box.innerHTML = `
+              <div class="text-cyan-400 font-bold">${routeJunctions.length} Corridor Signals Active (J1 to J${routeJunctions.length})</div>
+              <div class="text-slate-400 text-[11px]">Final Signal Before Hospital: ${routeJunctions[routeJunctions.length - 1].id} — ${routeJunctions[routeJunctions.length - 1].name}</div>
+            `;
+          }
         }
       } catch (e) {}
     }
@@ -232,7 +245,7 @@
         currentStep = Math.min(roadPath.length - 1, currentStep + stepAdvance);
 
         const [lat, lon] = roadPath[currentStep];
-        ambMarker.setLatLng([lat, lon]);
+        if (ambMarker) ambMarker.setLatLng([lat, lon]);
 
         const passedIds = [];
         let upcomingJunction = null;
@@ -287,7 +300,7 @@
             </div>
           `;
         } else {
-          box.innerHTML = `<div class="text-emerald-400 font-bold">All corridor signals cleared! Arriving at Hospital.</div>`;
+          box.innerHTML = `<div class="text-emerald-400 font-bold">Final signal (${routeJunctions.length > 0 ? routeJunctions[routeJunctions.length - 1].id : 'All'}) cleared! Entering Hospital Gate.</div>`;
         }
       }, 400);
     }

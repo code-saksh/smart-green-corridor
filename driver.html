@@ -27,7 +27,7 @@
       <span class="h-3 w-3 rounded-full bg-red-500 animate-ping"></span>
       <div>
         <h1 class="text-base font-bold text-white">DRIVER APP // Bengaluru's 50 High-Density Traffic Signals</h1>
-        <p class="text-xs text-slate-400">Exact Geo-Coordinates of 50 Major Bengaluru Signals + Active Corridor Detection</p>
+        <p class="text-xs text-slate-400">Exact Geo-Coordinates of 50 Major Bengaluru Signals + Strict Corridor Detection</p>
       </div>
     </div>
     <div class="flex items-center gap-3">
@@ -88,7 +88,7 @@
           <div class="font-bold text-slate-400 uppercase">Bengaluru 50-Signal Grid Legend</div>
           <div class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full bg-red-500 inline-block"></span> <span>On-Route Corridor Signal (Active Preemption)</span></div>
           <div class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full bg-emerald-500 inline-block"></span> <span>Next Target Signal (Green Wave Triggered)</span></div>
-          <div class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full bg-amber-500/60 inline-block"></span> <span>Off-Route City Signal (Standby Monitoring)</span></div>
+          <div class="flex items-center gap-2"><span class="h-2.5 w-2.5 rounded-full bg-amber-500/60 inline-block"></span> <span>Off-Route City Signal (Hover to view name)</span></div>
         </div>
       </div>
 
@@ -116,17 +116,19 @@
       attribution: '&copy; OpenStreetMap'
     }).addTo(map);
 
+    // Dedicated LayerGroup guarantees 100% cleanup of previous routes and markers
+    const routeLayerGroup = L.layerGroup().addTo(map);
+
     let hospitalsData = {};
     let bengaluruSignals = [];
     let currentOrigin = { lat: 12.8626, lon: 77.5756 };
     let roadPath = [];
-    let routePolyline = null;
     let routeJunctions = [];
     let currentStep = 0;
     let gpsTimer = null;
     let ambMarker = null;
-    let destMarker = null;
     let junctionMarkers = {};
+    let activeRouteLoadId = 0;
 
     const ambIcon = L.divIcon({ className: '', html: '<div class="amb-dot"></div>', iconSize: [22, 22], iconAnchor: [11, 11] });
 
@@ -136,7 +138,7 @@
       const dLat = toRad(lat2 - lat1);
       const dLon = toRad(lon2 - lon1);
       const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-      return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return 2 * R * Math.atan2(math.sqrt(a), Math.sqrt(1 - a));
     }
 
     async function initApp() {
@@ -164,7 +166,8 @@
           err => {
             document.getElementById('originText').innerText = `${currentOrigin.lat.toFixed(4)}, ${currentOrigin.lon.toFixed(4)} (Default Bengaluru South)`;
             loadRouteForSelectedHospital();
-          }
+          },
+          { timeout: 5000 }
         );
       } else {
         loadRouteForSelectedHospital();
@@ -178,31 +181,36 @@
       const h = hospitalsData[hId];
       if (!h) return;
 
-      if (destMarker) map.removeLayer(destMarker);
-      destMarker = L.marker([h.lat, h.lon]).addTo(map).bindPopup(`<b>${h.name}</b>`).openPopup();
-
-      if (routePolyline) map.removeLayer(routePolyline);
-      Object.values(junctionMarkers).forEach(m => map.removeLayer(m));
-      junctionMarkers = {};
-      routeJunctions = [];
+      // Increment load ID to cancel any stale overlapping requests
+      const myLoadId = ++activeRouteLoadId;
 
       const url = `https://router.project-osrm.org/route/v1/driving/${currentOrigin.lon},${currentOrigin.lat};${h.lon},${h.lat}?overview=full&geometries=geojson`;
 
       try {
         const res = await fetch(url);
         const data = await res.json();
+
+        // If another route was selected while this was fetching, abort!
+        if (myLoadId !== activeRouteLoadId) return;
+
+        // Wipe all previous lines, markers, and tooltips completely clean
+        routeLayerGroup.clearLayers();
+        junctionMarkers = {};
+        routeJunctions = [];
+
         if (data.routes && data.routes.length > 0) {
           const route = data.routes[0];
           roadPath = route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
 
-          routePolyline = L.polyline(roadPath, { color: '#38bdf8', weight: 6, opacity: 0.9 }).addTo(map);
+          const routePolyline = L.polyline(roadPath, { color: '#38bdf8', weight: 6, opacity: 0.9 }).addTo(routeLayerGroup);
+          L.marker([h.lat, h.lon]).addTo(routeLayerGroup).bindPopup(`<b>🏥 ${h.name}</b>`).openPopup();
+          ambMarker = L.marker(roadPath[0], { icon: ambIcon }).addTo(routeLayerGroup);
+
           map.fitBounds(routePolyline.getBounds(), { padding: [40, 40] });
 
-          if (ambMarker) map.removeLayer(ambMarker);
-          ambMarker = L.marker(roadPath[0], { icon: ambIcon }).addTo(map);
-
-          // PLOT ALL 50 REAL BENGALURU HIGH-DENSITY SIGNALS AT THEIR TRUE COORDINATES
-          // AND DETECT WHICH SIGNALS LIE ALONG THIS ROUTE CORRIDOR
+          // STRICT CORRIDOR FILTERING:
+          // 1. Signal must be within 150m of the actual road geometry (prevents pulling in signals past the hospital)
+          // 2. closestIdx must be strictly BEFORE the hospital endpoint (closestIdx < roadPath.length - 3)
           bengaluruSignals.forEach(sig => {
             let minDist = Infinity;
             let closestIdx = 0;
@@ -215,9 +223,10 @@
               }
             });
 
-            const isOnCorridor = minDist <= 850; // Within 850m of the active route path
+            const distToHospital = haversineM(sig.lat, sig.lon, h.lat, h.lon);
+            const is strictlyBeforeDestination = (closestIdx < roadPath.length - 3) && (distToHospital > 120);
 
-            if (isOnCorridor) {
+            if (minDist <= 150 && isStrictlyBeforeDestination) {
               routeJunctions.push({
                 origId: sig.id,
                 name: sig.name,
@@ -226,27 +235,33 @@
                 pathIndex: closestIdx
               });
             } else {
-              // Off-route city signal shown in subtle amber at its real Bengaluru location
-              junctionMarkers[sig.id] = L.circleMarker([sig.lat, sig.lon], {
-                radius: 4, fillColor: '#f59e0b', color: '#78350f', weight: 1, fillOpacity: 0.45
-              }).addTo(map).bindTooltip(`${sig.id}: ${sig.name} (City Grid)`, { permanent: false, direction: 'right' });
+              // Off-route or beyond-destination signal: subtle dot, NO permanent label
+              L.circleMarker([sig.lat, sig.lon], {
+                radius: 4, fillColor: '#f59e0b', color: '#78350f', weight: 1, fillOpacity: 0.35
+              }).addTo(routeLayerGroup).bindTooltip(`${sig.id}: ${sig.name} (Off-Route)`, { permanent: false, direction: 'right' });
             }
           });
 
-          // Sort on-route signals strictly in driving order from Origin -> Hospital
+          // Sort strictly from Origin -> Hospital
           routeJunctions.sort((a, b) => a.pathIndex - b.pathIndex);
 
-          // Render on-route signals with permanent labels J1, J2, J3...
+          // Render ONLY the true on-route signals before the hospital
           routeJunctions.forEach((rj, idx) => {
             rj.id = `J${idx + 1}`;
             junctionMarkers[rj.id] = L.circleMarker([rj.lat, rj.lon], {
               radius: 8, fillColor: '#ef4444', color: '#ffffff', weight: 2, fillOpacity: 1
-            }).addTo(map).bindTooltip(`<b>${rj.id}: ${rj.name}</b>`, { permanent: true, direction: 'right' });
+            }).addTo(routeLayerGroup).bindTooltip(`<b>${rj.id}: ${rj.name}</b>`, { permanent: true, direction: 'right' });
           });
 
           const box = document.getElementById('closestJunctionBox');
           if (routeJunctions.length > 0) {
-            box.innerHTML = `<div class="text-cyan-400 font-bold">${routeJunctions.length} Real Bengaluru Signals detected along this corridor.</div><div class="text-slate-400 text-[11px]">Next: ${routeJunctions[0].id} — ${routeJunctions[0].name}</div>`;
+            box.innerHTML = `
+              <div class="text-cyan-400 font-bold">${routeJunctions.length} Corridor Signals Active (J1 to J${routeJunctions.length})</div>
+              <div class="text-slate-400 text-[11px]">First Target: ${routeJunctions[0].id} — ${routeJunctions[0].name}</div>
+              <div class="text-slate-400 text-[11px]">Final Signal Before Hospital: ${routeJunctions[routeJunctions.length - 1].id} — ${routeJunctions[routeJunctions.length - 1].name}</div>
+            `;
+          } else {
+            box.innerHTML = `<div class="text-emerald-400 font-bold">Direct hospital access — 0 major signals blocking route.</div>`;
           }
         }
       } catch (e) {}
@@ -275,7 +290,7 @@
         currentStep = Math.min(roadPath.length - 1, currentStep + stepAdvance);
 
         const [lat, lon] = roadPath[currentStep];
-        ambMarker.setLatLng([lat, lon]);
+        if (ambMarker) ambMarker.setLatLng([lat, lon]);
 
         const passedIds = [];
         let upcomingJunction = null;
@@ -331,7 +346,7 @@
             </div>
           `;
         } else {
-          box.innerHTML = `<div class="text-emerald-400 font-bold">All corridor signals cleared! Arriving at Hospital.</div>`;
+          box.innerHTML = `<div class="text-emerald-400 font-bold">Final signal (${routeJunctions.length > 0 ? routeJunctions[routeJunctions.length - 1].id : 'All'}) cleared! Entering Hospital Gate.</div>`;
         }
       }, 400);
     }
