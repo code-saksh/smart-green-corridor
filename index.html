@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AURA-EVP v2.0 — Autonomous Ambulance Preemption + Live API</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    body { background-color: #090d16; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
+    #map { height: 100%; width: 100%; border-radius: 0.75rem; }
+    .pulse-amb {
+      width: 22px; height: 22px; border-radius: 50%;
+      background: #ef4444; border: 3px solid #ffffff;
+      box-shadow: 0 0 0 rgba(239, 68, 68, 0.7);
+      animation: pulseRed 1.2s infinite;
+    }
+    @keyframes pulseRed {
+      0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.85); }
+      70% { box-shadow: 0 0 0 18px rgba(239, 68, 68, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
+  </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden p-3 gap-3">
+
+  <!-- TOP HEADER BAR (UPDATED WITH v2.0 API CONTROLS) -->
+  <header class="bg-slate-900/95 border border-slate-800 rounded-xl px-5 py-2.5 flex items-center justify-between shadow-lg">
+    <div class="flex items-center gap-3">
+      <span class="h-3.5 w-3.5 rounded-full bg-red-500 animate-ping"></span>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="text-lg font-bold tracking-wide text-white">AURA-EVP // Autonomous Green Corridor</h1>
+          <span class="bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-[10px] font-mono px-2 py-0.5 rounded-full">v2.0 REST + WS API</span>
+        </div>
+        <p class="text-xs text-slate-400">Click anywhere on the map to beam live Driver GPS via <code class="text-cyan-400">POST /api/v1/telemetry/gps</code></p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <div class="bg-slate-950 border border-slate-800 px-3.5 py-1 rounded-lg text-center">
+        <div class="text-[10px] uppercase tracking-wider text-slate-400">Est. Time Saved</div>
+        <div id="timeSaved" class="text-sm font-bold text-emerald-400">0.0s</div>
+      </div>
+      <div class="bg-slate-950 border border-slate-800 px-3.5 py-1 rounded-lg text-center">
+        <div class="text-[10px] uppercase tracking-wider text-slate-400">Queue Delay</div>
+        <div id="delayTime" class="text-sm font-bold text-rose-400">0.0s</div>
+      </div>
+      <button id="aiToggleBtn" onclick="toggleAI()" class="px-3.5 py-2 rounded-lg text-xs font-bold uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 text-white transition">
+        🧠 AI Preemption: ON
+      </button>
+      <a href="/docs" target="_blank" class="px-3.5 py-2 rounded-lg text-xs font-bold uppercase tracking-wider bg-indigo-600 hover:bg-indigo-500 text-white transition shadow">
+        ⚡ Open Swagger API (/docs) ↗
+      </a>
+    </div>
+  </header>
+
+  <!-- MAIN SPLIT WORKSPACE -->
+  <div class="flex-1 grid grid-cols-12 gap-3 overflow-hidden">
+
+    <!-- LEFT PANEL: DRIVER MOBILE APP, MAP & API CONSOLE (7 COLS) -->
+    <div class="col-span-7 flex flex-col gap-3 overflow-hidden">
+      <!-- Driver App Telemetry Controls -->
+      <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-3 flex items-center justify-between gap-4">
+        <div class="flex items-center gap-2">
+          <button onclick="sendCmd('start')" class="bg-red-600 hover:bg-red-500 text-white font-semibold px-3.5 py-2 rounded-lg text-xs shadow">
+            🚑 Auto-Dispatch
+          </button>
+          <button onclick="sendCmd('pause')" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-lg text-xs">
+            ⏸ Pause
+          </button>
+          <button onclick="sendCmd('reset')" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-lg text-xs">
+            🔄 Reset
+          </button>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <div>
+            <label class="text-[11px] text-slate-400 block">Ambulance Speed: <span id="speedVal" class="text-white font-bold">65</span> km/h</label>
+            <input id="speedSlider" type="range" min="30" max="100" value="65" oninput="updateSpeed(this.value)" class="w-36 accent-red-500 cursor-pointer" />
+          </div>
+          <div class="bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 text-right">
+            <div class="text-[10px] text-slate-400 uppercase">Live GPS Velocity</div>
+            <div id="liveSpeed" class="text-xs font-mono font-bold text-cyan-400">0 km/h</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Interactive Real-World Map -->
+      <div class="flex-1 bg-slate-900 border border-slate-800 rounded-xl p-1.5 relative">
+        <div id="map"></div>
+      </div>
+
+      <!-- NEW: BUILT-IN REST API TESTER BAR -->
+      <div class="bg-slate-900/95 border border-indigo-500/40 rounded-xl p-3 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-bold uppercase tracking-wider text-indigo-400">🔌 Live REST API Injector:</span>
+          <select id="apiJunctionSelect" class="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white">
+            <option value="J1">J1 (Agara Signal)</option>
+            <option value="J2" selected>J2 (Sony World)</option>
+            <option value="J3">J3 (Ejipura Signal)</option>
+            <option value="J4">J4 (Domlur Junction)</option>
+          </select>
+          <input id="apiVehicleInput" type="number" min="0" max="80" value="35" class="w-20 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white" placeholder="Cars" />
+          <button onclick="pushYoloDensityAPI()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition">
+            POST /junctions/{id}/density
+          </button>
+        </div>
+        <div id="apiResponseBadge" class="text-[11px] font-mono text-emerald-400 truncate max-w-xs">
+          Tip: Click map to fire POST /api/v1/telemetry/gps
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT PANEL: SMART TRAFFIC JUNCTION AI BRAIN (5 COLS) -->
+    <div class="col-span-5 flex flex-col gap-3 overflow-hidden">
+      <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-4 flex-1 overflow-y-auto">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-sm font-bold uppercase tracking-wider text-slate-300">Autonomous Signal Controllers (Live Math)</h2>
+          <span class="text-xs text-slate-400 font-mono">Trigger: T_amb &le; T_clear + Buffer</span>
+        </div>
+        <div id="junctionContainer" class="space-y-3"></div>
+      </div>
+
+      <!-- Live AI Decision & Telemetry Logs -->
+      <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 h-48 flex flex-col">
+        <div class="text-xs font-bold uppercase tracking-wider text-cyan-400 mb-2">⚡ Real-Time V2I Signal & API Event Log</div>
+        <div id="logContainer" class="flex-1 overflow-y-auto font-mono text-xs space-y-1.5 text-slate-300"></div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    let aiEnabled = true;
+    const map = L.map('map').setView([12.9410, 77.6350], 13);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    let routeLine = null;
+    let ambMarker = null;
+    const junctionMarkers = {};
+
+    const ambIcon = L.divIcon({
+      className: '',
+      html: '<div class="pulse-amb"></div>',
+      iconSize: [22, 22],
+      iconAnchor: [11, 11]
+    });
+
+    // CLICK ANYWHERE ON MAP TO FIRE LIVE GPS REST API!
+    map.on('click', async (e) => {
+      const { lat, lng } = e.latlng;
+      const speed = parseFloat(document.getElementById('speedSlider').value);
+      const res = await fetch('/api/v1/telemetry/gps', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ambulance_id: 'AMB-108-LIVE',
+          lat: lat,
+          lon: lng,
+          speed_kmh: speed,
+          emergency_priority: 'CRITICAL_P1'
+        })
+      });
+      const json = await res.json();
+      document.getElementById('apiResponseBadge').innerText =
+        `200 OK: Nearest ${json.nearest_junction.id} (${json.nearest_junction.distance_m}m)`;
+    });
+
+    // PUSH YOLO VEHICLE COUNT VIA REST API
+    async function pushYoloDensityAPI() {
+      const jId = document.getElementById('apiJunctionSelect').value;
+      const count = parseInt(document.getElementById('apiVehicleInput').value || '25', 10);
+      const res = await fetch(`/api/v1/junctions/${jId}/density`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          vehicle_count: count,
+          cross_traffic_density: 0.85,
+          source: 'YOLOv8_REST_API'
+        })
+      });
+      const json = await res.json();
+      document.getElementById('apiResponseBadge').innerText =
+        `200 OK: ${json.junction_id} T_clear=${json.recalculated_t_clear_sec}s`;
+    }
+
+    async function sendCmd(action, extra = {}) {
+      await fetch('/api/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...extra })
+      });
+    }
+
+    function updateSpeed(val) {
+      document.getElementById('speedVal').innerText = val;
+      sendCmd('set_speed', { speed_kmh: parseFloat(val) });
+    }
+
+    function toggleAI() {
+      aiEnabled = !aiEnabled;
+      const btn = document.getElementById('aiToggleBtn');
+      if (aiEnabled) {
+        btn.innerText = '🧠 AI Preemption: ON';
+        btn.className = 'px-3.5 py-2 rounded-lg text-xs font-bold uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 text-white transition';
+      } else {
+        btn.innerText = '🛑 AI Preemption: OFF';
+        btn.className = 'px-3.5 py-2 rounded-lg text-xs font-bold uppercase tracking-wider bg-rose-700 hover:bg-rose-600 text-white transition';
+      }
+      sendCmd('toggle_ai', { ai_enabled: aiEnabled });
+    }
+
+    const ws = new WebSocket(`ws://${window.location.host}/ws`);
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      const { sim, junctions, route } = data;
+
+      document.getElementById('timeSaved').innerText = `${sim.time_saved_sec}s`;
+      document.getElementById('delayTime').innerText = `${sim.delay_incurred_sec}s`;
+      document.getElementById('liveSpeed').innerText = `${sim.effective_speed_kmh} km/h`;
+
+      if (!routeLine && route.length) {
+        routeLine = L.polyline(route, { color: '#38bdf8', weight: 5, opacity: 0.7, dashArray: '8, 8' }).addTo(map);
+        map.fitBounds(routeLine.getBounds(), { padding: [30, 30] });
+      }
+
+      if (!ambMarker) {
+        ambMarker = L.marker([sim.amb_lat, sim.amb_lon], { icon: ambIcon }).addTo(map)
+          .bindTooltip("🚑 Emergency Ambulance #108", { permanent: false });
+      } else {
+        ambMarker.setLatLng([sim.amb_lat, sim.amb_lon]);
+      }
+
+      const container = document.getElementById('junctionContainer');
+      container.innerHTML = '';
+
+      junctions.forEach(j => {
+        const isGreen = j.state.includes('GREEN');
+        const isYellow = j.state.includes('YELLOW');
+        const badgeColor = isGreen ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                         : isYellow ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                         : 'bg-rose-500/20 text-rose-300 border-rose-500/40';
+        const dotColor = isGreen ? '#10b981' : isYellow ? '#f59e0b' : '#ef4444';
+
+        if (!junctionMarkers[j.id]) {
+          junctionMarkers[j.id] = L.circleMarker([j.lat, j.lon], {
+            radius: 10, fillColor: dotColor, color: '#fff', weight: 2, fillOpacity: 0.95
+          }).addTo(map).bindTooltip(`${j.id}: ${j.name}`, { permanent: true, direction: 'right', offset: [10, 0] });
+        } else {
+          junctionMarkers[j.id].setStyle({ fillColor: dotColor });
+        }
+
+        const card = document.createElement('div');
+        card.className = `p-3 rounded-xl border ${j.mode === 'PREEMPT_ACTIVE' ? 'bg-emerald-950/30 border-emerald-500/50' : 'bg-slate-950/90 border-slate-800'}`;
+        card.innerHTML = `
+          <div class="flex items-center justify-between mb-2">
+            <div>
+              <span class="text-xs font-bold text-cyan-400 mr-1.5">${j.id}</span>
+              <span class="text-sm font-semibold text-white">${j.name}</span>
+            </div>
+            <span class="px-2.5 py-0.5 text-[11px] font-bold rounded-full border ${badgeColor}">
+              ● ${j.state}
+            </span>
+          </div>
+          <div class="grid grid-cols-4 gap-2 text-center bg-slate-900/90 p-2 rounded-lg border border-slate-800/80">
+            <div>
+              <div class="text-[10px] text-slate-400">Dist to Signal</div>
+              <div class="text-xs font-mono font-bold text-white">${j.passed ? 'PASSED' : j.distance_m + ' m'}</div>
+            </div>
+            <div>
+              <div class="text-[10px] text-slate-400">Standing Queue</div>
+              <div class="text-xs font-mono font-bold text-amber-400">${Math.round(j.queue_vehicles)} cars</div>
+            </div>
+            <div>
+              <div class="text-[10px] text-slate-400">Queue T_clear</div>
+              <div class="text-xs font-mono font-bold text-purple-300">${j.t_clear_sec || 0}s</div>
+            </div>
+            <div>
+              <div class="text-[10px] text-slate-400">Amb ETA (T_amb)</div>
+              <div class="text-xs font-mono font-bold text-cyan-300">${j.passed ? '--' : (j.t_amb_sec || 0) + 's'}</div>
+            </div>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+
+      const logBox = document.getElementById('logContainer');
+      logBox.innerHTML = sim.logs.map(l => `<div class="border-b border-slate-900 pb-1">${l}</div>`).join('');
+    };
+  </script>
+</body>
+</html>

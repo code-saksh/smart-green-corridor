@@ -156,6 +156,19 @@
 
           if (ambMarker) map.removeLayer(ambMarker);
           ambMarker = L.marker(roadPath[0], { icon: ambIcon }).addTo(map);
+
+          const numNodes = 6;
+          for (let i = 1; i <= numNodes; i++) {
+            const ratio = i / (numNodes + 1);
+            const jLat = currentOrigin.lat + (h.lat - currentOrigin.lat) * ratio;
+            const jLon = currentOrigin.lon + (h.lon - currentOrigin.lon) * ratio;
+            const jId = `J${i}`;
+            const jName = i === 6 ? "Hospital Approach Signal" : `Signal Node ${i} (Multi/Single Lane)`;
+
+            junctionMarkers[jId] = L.circleMarker([jLat, jLon], {
+              radius: 9, fillColor: '#ef4444', color: '#fff', weight: 2, fillOpacity: 1
+            }).addTo(map).bindTooltip(`${jId}: ${jName}`, { permanent: true, direction: 'right' });
+          }
         }
       } catch (e) {}
     }

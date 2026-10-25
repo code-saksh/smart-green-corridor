@@ -160,12 +160,6 @@
       Object.values(junctionMarkers).forEach(m => map.removeLayer(m));
       junctionMarkers = {};
 
-      h.corridor_junctions.forEach(j => {
-        junctionMarkers[j.id] = L.circleMarker([j.lat, j.lon], {
-          radius: 9, fillColor: '#ef4444', color: '#fff', weight: 2, fillOpacity: 1
-        }).addTo(map).bindTooltip(`${j.id}: ${j.name}`, { permanent: true, direction: 'right' });
-      });
-
       const url = `https://router.project-osrm.org/route/v1/driving/${currentOrigin.lon},${currentOrigin.lat};${h.lon},${h.lat}?overview=full&geometries=geojson`;
 
       try {
@@ -180,6 +174,19 @@
 
           if (ambMarker) map.removeLayer(ambMarker);
           ambMarker = L.marker(roadPath[0], { icon: ambIcon }).addTo(map);
+
+          const numNodes = 6;
+          for (let i = 1; i <= numNodes; i++) {
+            const ratio = i / (numNodes + 1);
+            const jLat = currentOrigin.lat + (h.lat - currentOrigin.lat) * ratio;
+            const jLon = currentOrigin.lon + (h.lon - currentOrigin.lon) * ratio;
+            const jId = `J${i}`;
+            const jName = i === 6 ? "Hospital Approach Signal" : `Signal Node ${i} (Multi/Single Lane)`;
+
+            junctionMarkers[jId] = L.circleMarker([jLat, jLon], {
+              radius: 9, fillColor: '#ef4444', color: '#fff', weight: 2, fillOpacity: 1
+            }).addTo(map).bindTooltip(`${jId}: ${jName}`, { permanent: true, direction: 'right' });
+          }
         }
       } catch (e) {}
     }
@@ -224,16 +231,6 @@
           `📡 TX LIVE: (${lat.toFixed(4)}, ${lon.toFixed(4)}) @ ${speed} km/h`;
 
         const closest = status.closest_upcoming_junction;
-        Object.keys(junctionMarkers).forEach(jId => {
-          if (status.passed_junctions && status.passed_junctions.includes(jId)) {
-            junctionMarkers[jId].setStyle({ fillColor: '#64748b' });
-          } else if (closest && closest.id === jId) {
-            junctionMarkers[jId].setStyle({ fillColor: '#10b981', radius: 13 });
-          } else {
-            junctionMarkers[jId].setStyle({ fillColor: '#ef4444', radius: 9 });
-          }
-        });
-
         const box = document.getElementById('closestJunctionBox');
         if (closest) {
           box.innerHTML = `

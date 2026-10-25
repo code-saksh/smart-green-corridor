@@ -112,19 +112,13 @@ class JunctionDensityPayload(BaseModel):
 # HELPER: GENERATE COMPREHENSIVE CORRIDOR JUNCTIONS ALONG ROUTE
 # =========================================================
 def generate_corridor_junctions(orig_lat, orig_lon, dest_lat, dest_lon):
-    """
-    Dynamically generates a dense series of traffic signal nodes (including minor/single-lane signals) 
-    spaced every ~800 meters along any arbitrary path across Bengaluru.
-    """
     junctions = []
-    num_nodes = 6  # Creates 6 sequential signal nodes along the route
-    
+    num_nodes = 6
     for i in range(1, num_nodes + 1):
         ratio = i / (num_nodes + 1)
         j_lat = orig_lat + (dest_lat - orig_lat) * ratio
         j_lon = orig_lon + (dest_lon - orig_lon) * ratio
         
-        # Give unique, realistic signal names based on sequence
         signal_types = [
             ("J1", "Main Arterial Signal"),
             ("J2", "Sub-Colony / Single-Lane Junction"),
@@ -141,7 +135,7 @@ def generate_corridor_junctions(orig_lat, orig_lon, dest_lat, dest_lon):
             "lat": round(j_lat, 4),
             "lon": round(j_lon, 4),
             "amb_approach": "NORTH" if i % 2 == 0 else "SOUTH",
-            "lanes": {"NORTH": 12 + (i * 2), "SOUTH": 10 + i, "EAST": 6 + i, "WEST": 8 + i} # Supports multi-lane down to single/minor lanes
+            "lanes": {"NORTH": 12 + (i * 2), "SOUTH": 10 + i, "EAST": 6 + i, "WEST": 8 + i}
         })
     return junctions
 
@@ -165,8 +159,6 @@ async def receive_driver_gps(packet: LiveGPSPacket):
     live_state["last_updated"] = time.strftime("%H:%M:%S")
 
     selected_hospital = HOSPITALS.get(packet.destination_id, HOSPITALS["manipal_old_airport"])
-    
-    # Dynamically generate comprehensive signal nodes from current device GPS to chosen hospital
     junctions = generate_corridor_junctions(packet.lat, packet.lon, selected_hospital["lat"], selected_hospital["lon"])
 
     valid_junctions = []
