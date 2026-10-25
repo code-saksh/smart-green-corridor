@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
-app = FastAPI(title="AURA-EVP // Ultra-Dense 125-Signal Bengaluru Emergency Green Corridor API")
+app = FastAPI(title="AURA-EVP // Top 50 High-Density Bengaluru Emergency Green Corridor API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -15,7 +15,7 @@ app.add_middleware(
 )
 
 # =========================================================
-# 10+ MAJOR HOSPITALS
+# 10 MAJOR HOSPITALS COVERING ALL ZONES OF BENGALURU
 # =========================================================
 HOSPITALS = {
     "manipal_old_airport": {
@@ -61,6 +61,25 @@ HOSPITALS = {
 }
 
 # =========================================================
+# TOP 50 HIGH-DENSITY BENGALURU TRAFFIC SIGNALS
+# =========================================================
+TOP_50_SIGNALS = [
+    "Central Silk Board Junction", "KR Puram Tin Factory Signal", "Hebbal Flyover Main Junction", "Sony World Signal, Koramangala",
+    "Marathahalli Bridge Junction", "Jayadeva Hospital Flyover Signal", "Goraguntepalya Junction", "Iblur Outer Ring Road Signal",
+    "Agara Lake Junction", "Domlur Flyover Signal", "Trinity Circle Signal", "Richmond Circle Junction",
+    "Mekhri Circle Underpass Signal", "Yeshwantpur Circle Signal", "Town Hall Main Junction", "Majestic Kempegowda Signal",
+    "Hudson Circle Junction", "Anand Rao Circle Signal", "Chalukya Circle Junction", "Windsor Manor Bridge Signal",
+    "Cauvery Theater Junction", "Bhashyam Circle, Sadashivanagar", "BEL Circle Junction", "Jalahalli Cross Signal",
+    "Peenya 1st Stage Junction", "8th Mile Tumkur Road Signal", "Navrang Circle, Rajajinagar", "Magadi Road Tollgate Signal",
+    "Vijayanagar Water Tank Junction", "Nayandahalli Flyover Junction", "Deepanjali Nagar Signal", "Banashankari Bus Stand Junction",
+    "Jayanagar 4th Block Signal", "South End Circle Junction", "Lalbagh West Gate Signal", "Minerva Circle Junction",
+    "JC Road Corporation Signal", "Shanti Nagar Bus Station Signal", "Double Road Kengal Hanumanthaiah Signal", "Dairy Circle Flyover Junction",
+    "St. John's Hospital Signal", "Water Tank Junction, Koramangala", "Ejipura Inner Ring Road Signal", "Indiranagar 100ft Road CMH Signal",
+    "Old Madras Road Baiyappanahalli Signal", "Whitefield Hope Farm Junction", "ITPL Main Gate Signal", "Hoodi Circle Junction",
+    "Graphite India Signal, Whitefield", "Bellandur Gate ORR Signal"
+]
+
+# =========================================================
 # GLOBAL LIVE STATE & SIGNAL BRAIN
 # =========================================================
 live_state = {
@@ -73,16 +92,16 @@ live_state = {
     "passed_junctions": [],
     "active_junction": {
         "id": "J1",
-        "name": "Gottigere Cross Signal",
-        "distance_m": 1200.0,
-        "eta_sec": 65.0,
+        "name": "Central Silk Board Junction",
+        "distance_m": 450.0,
+        "eta_sec": 25.0,
         "amb_approach": "NORTH",
-        "lanes": {"NORTH": 15, "SOUTH": 12, "EAST": 8, "WEST": 10},
+        "lanes": {"NORTH": 26, "SOUTH": 22, "EAST": 18, "WEST": 20},
         "signals": {"NORTH": "RED", "SOUTH": "RED", "EAST": "GREEN", "WEST": "RED"},
-        "t_clear_sec": 25.0,
-        "trigger_threshold_sec": 32.5,
+        "t_clear_sec": 28.0,
+        "trigger_threshold_sec": 35.5,
         "phase": "NORMAL_ADAPTIVE",
-        "decision_reason": "Initializing 125-signal urban network..."
+        "decision_reason": "Monitoring Top 50 High-Density Bengaluru Signal Grid..."
     },
     "last_updated": "STANDBY"
 }
@@ -101,55 +120,16 @@ class LiveGPSPacket(BaseModel):
     lon: float
     speed_kmh: float
     destination_id: str
+    closest_junction_id: str | None = None
+    closest_junction_name: str | None = None
+    closest_junction_lat: float | None = None
+    closest_junction_lon: float | None = None
+    passed_junction_ids: list[str] | None = None
 
 class JunctionDensityPayload(BaseModel):
     vehicle_count: int = Field(..., ge=0, le=100)
     cross_traffic_density: float | None = Field(default=None, ge=0.0, le=1.0)
     source: str = Field(default="YOLOv8_EDGE_CAMERA")
-
-
-# =========================================================
-# 125-NAMED SIGNAL CORRIDOR GENERATOR
-# =========================================================
-def generate_corridor_junctions(orig_lat, orig_lon, dest_lat, dest_lon):
-    junctions = []
-    num_nodes = 125
-    
-    base_hubs = [
-        "Gottigere Cross Signal", "Hulimavu Gate Signal", "Meenakshi Mall Junction", "IIMB Main Gate Signal", 
-        "Bannerghatta Underpass", "Jayadeva Flyover Signal", "Central Silk Board Junction", "BTM 29th Main Signal", 
-        "Koramangala Water Tank", "Sony World Signal", "Ejipura Ring Signal", "Domlur Flyover Signal", 
-        "Trinity Church Junction", "M.G. Road Signal", "Hebbal Flyover Signal", "Mathikere Main Signal",
-        "Yeshwantpur Circle", "Goraguntepalya Signal", "Peenya 1st Stage Signal", "Navrang Circle Signal",
-        "Magadi Road Tollgate", "BEL Circle Signal", "Whitefield Main Signal", "ITPL Gate Signal", 
-        "Hoodi Circle Signal", "Marathahalli Bridge", "Bellandur Junction", "Devarabisanahalli Signal",
-        "Agara Signal", "Iblur Junction", "Jayanagar 4th Block", "Banashankari Temple Signal",
-        "JP Nagar 15th Cross", "KR Puram Cable Bridge Signal", "Tin Factory Junction", "Hebbal Lake Signal",
-        "Sadashivanagar Police Station Signal", "Mekhri Circle Signal", "Cunningham Road Junction", "Queens Road Signal",
-        "Infantry Road Crossing", "Residency Road Signal", "Richmond Circle", "Shanti Nagar Bus Stand Signal",
-        "Lalbagh West Gate Signal", "Basavanagudi Bull Temple Signal", "NR Colony Junction", "Chamrajpet Signal",
-        "Kasturba Road Signal", "Hospital Emergency Gate Approach"
-    ]
-    
-    for i in range(1, num_nodes + 1):
-        ratio = i / (num_nodes + 1)
-        j_lat = orig_lat + (dest_lat - orig_lat) * ratio
-        j_lon = orig_lon + (dest_lon - orig_lon) * ratio
-        
-        j_id = f"J{i}"
-        hub = base_hubs[(i - 1) % len(base_hubs)]
-        j_name = f"{hub} [Sub-Node {i}]"
-        
-        junctions.append({
-            "id": j_id,
-            "name": j_name,
-            "lat": round(j_lat, 4),
-            "lon": round(j_lon, 4),
-            "amb_approach": "NORTH" if i % 2 == 0 else "SOUTH",
-            "lanes": {"NORTH": 10 + (i % 8), "SOUTH": 8 + (i % 6), "EAST": 6, "WEST": 8}
-        })
-    return junctions
-
 
 # =========================================================
 # API ENDPOINTS
@@ -157,7 +137,7 @@ def generate_corridor_junctions(orig_lat, orig_lon, dest_lat, dest_lon):
 
 @app.get("/api/hospitals")
 async def get_hospitals():
-    return {"hospitals": HOSPITALS}
+    return {"hospitals": HOSPITALS, "top_50_signals": TOP_50_SIGNALS}
 
 @app.post("/api/driver/gps")
 async def receive_driver_gps(packet: LiveGPSPacket):
@@ -169,32 +149,33 @@ async def receive_driver_gps(packet: LiveGPSPacket):
     live_state["destination_id"] = packet.destination_id
     live_state["last_updated"] = time.strftime("%H:%M:%S")
 
+    if packet.passed_junction_ids is not None:
+        live_state["passed_junctions"] = packet.passed_junction_ids
+
     selected_hospital = HOSPITALS.get(packet.destination_id, HOSPITALS["manipal_old_airport"])
-    junctions = generate_corridor_junctions(packet.lat, packet.lon, selected_hospital["lat"], selected_hospital["lon"])
 
-    valid_junctions = []
-    for j in junctions:
-        dist = haversine_m(packet.lat, packet.lon, j["lat"], j["lon"])
-        if dist < 30.0 and j["id"] not in live_state["passed_junctions"]:
-            live_state["passed_junctions"].append(j["id"])
-
-        if j["id"] not in live_state["passed_junctions"]:
-            valid_junctions.append((j, dist))
-
-    valid_junctions.sort(key=lambda x: x[1])
-    upcoming = valid_junctions[0] if valid_junctions else None
-
-    if upcoming:
-        j_cfg, dist_m = upcoming
+    if packet.closest_junction_id and packet.closest_junction_lat is not None and packet.closest_junction_lon is not None:
+        j_id = packet.closest_junction_id
+        j_name = packet.closest_junction_name or f"High-Density Signal ({j_id})"
+        dist_m = haversine_m(packet.lat, packet.lon, packet.closest_junction_lat, packet.closest_junction_lon)
+        
         speed_ms = max(packet.speed_kmh / 3.6, 4.0)
         eta_sec = round(dist_m / speed_ms, 1)
 
-        amb_lane = j_cfg["amb_approach"]
-        lanes = dict(j_cfg["lanes"])
+        idx_num = int(j_id.replace("J", "")) if j_id.startswith("J") and j_id[1:].isdigit() else 1
+        amb_lane = "NORTH" if idx_num % 2 == 0 else "SOUTH"
+        
+        # High-density queue numbers
+        lanes = {
+            "NORTH": 18 + (idx_num % 12),
+            "SOUTH": 16 + (idx_num % 10),
+            "EAST": 14 + (idx_num % 8),
+            "WEST": 15 + (idx_num % 9)
+        }
 
         startup_delay = 2.0
-        saturation_flow = 0.6
-        queue_in_amb_lane = lanes.get(amb_lane, 10)
+        saturation_flow = 0.65
+        queue_in_amb_lane = lanes[amb_lane]
         t_clear = round(startup_delay + (queue_in_amb_lane / saturation_flow), 1)
         yellow_buffer = 3.0
         safety_margin = 3.5
@@ -207,22 +188,22 @@ async def receive_driver_gps(packet: LiveGPSPacket):
             signals[amb_lane] = "GREEN"
             progress_ratio = max(0.0, min(1.0, eta_sec / max(t_clear, 1.0)))
             lanes[amb_lane] = max(0, int(queue_in_amb_lane * progress_ratio))
-            reason = f"⚡ GREEN CORRIDOR ACTIVE: Flushing {queue_in_amb_lane} vehicles in {amb_lane} lane at {j_cfg['name']}."
+            reason = f"⚡ GREEN CORRIDOR ACTIVE: Flushing high-density queue ({queue_in_amb_lane} vehicles) in {amb_lane} lane at {j_name}."
         elif eta_sec <= trigger_sec:
             phase = "YELLOW_SAFETY_CLEARANCE"
             perp_lane = "EAST" if amb_lane in ["NORTH", "SOUTH"] else "NORTH"
             signals[perp_lane] = "YELLOW"
-            reason = f"⚠️ PREEMPTION TRIGGERED at {j_cfg['name']}: Holding cross-traffic with 3s Yellow buffer."
+            reason = f"⚠️ PREEMPTION TRIGGERED at {j_name}: Clearing cross-traffic with 3s Yellow buffer."
         else:
             phase = "ADAPTIVE_CROSS_TRAFFIC"
             other_lanes = [k for k in lanes.keys() if k != amb_lane]
             busiest_cross = max(other_lanes, key=lambda k: lanes[k])
             signals[busiest_cross] = "GREEN"
-            reason = f"🧠 Approaching {j_cfg['name']} ({round(dist_m)}m away). Managing local traffic."
+            reason = f"🧠 Approaching {j_name} ({round(dist_m)}m away). Balancing high-density cross-traffic."
 
         live_state["active_junction"] = {
-            "id": j_cfg["id"],
-            "name": j_cfg["name"],
+            "id": j_id,
+            "name": j_name,
             "distance_m": round(dist_m, 1),
             "eta_sec": eta_sec,
             "amb_approach": amb_lane,
@@ -235,9 +216,13 @@ async def receive_driver_gps(packet: LiveGPSPacket):
         }
     else:
         live_state["active_junction"]["phase"] = "DESTINATION_REACHED"
-        live_state["active_junction"]["decision_reason"] = f"🏥 Ambulance successfully arrived at {selected_hospital['name']}!"
+        live_state["active_junction"]["decision_reason"] = f"🏥 All 50 high-density signals cleared! Ambulance arrived at {selected_hospital['name']}!"
 
-    return {"status": "GPS_RECEIVED", "closest_upcoming_junction": live_state["active_junction"]}
+    return {
+        "status": "GPS_RECEIVED",
+        "closest_upcoming_junction": live_state["active_junction"] if packet.closest_junction_id else None,
+        "passed_junctions": live_state["passed_junctions"]
+    }
 
 @app.post("/api/v1/junctions/{junction_id}/density")
 async def update_junction_vehicle_density(payload: JunctionDensityPayload, junction_id: str):

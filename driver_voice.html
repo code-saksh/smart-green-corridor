@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AURA-EVP // Hands-Free Voice Command Driver HUD</title>
+  <title>AURA-EVP // Hands-Free Voice Command Driver HUD (Top 50 Signals)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -26,7 +26,7 @@
     <div class="flex items-center gap-3">
       <span id="micPulse" class="h-3 w-3 rounded-full bg-emerald-400 animate-ping"></span>
       <div>
-        <h1 class="text-base font-bold text-white">VOICE HUD // Hands-Free Emergency Control</h1>
+        <h1 class="text-base font-bold text-white">VOICE HUD // Top 50 High-Density Traffic Signals</h1>
         <p class="text-xs text-slate-400">Say <strong class="text-cyan-400">"Start GPS"</strong>, <strong class="text-cyan-400">"Stop Voice"</strong>, or <strong class="text-cyan-400">"Reset"</strong></p>
       </div>
     </div>
@@ -79,7 +79,7 @@
       <!-- ACTIVE JUNCTION HAND-OFF MONITOR -->
       <div class="bg-slate-950 border border-cyan-500/40 rounded-xl p-3.5 mt-4">
         <div class="text-[11px] font-bold uppercase tracking-wider text-cyan-400 mb-2">
-          🎯 Active Target Junction (Closest Only)
+          🎯 Active High-Density Signal (Closest Only)
         </div>
         <div id="closestJunctionBox" class="text-xs text-slate-300 space-y-1">
           Say "Start GPS" to activate hands-free corridor preemption.
@@ -101,9 +101,12 @@
     }).addTo(map);
 
     let hospitalsData = {};
+    let top50Signals = [];
     let selectedHospitalId = 'manipal_old_airport';
     let currentOrigin = { lat: 12.9177, lon: 77.6233 };
     let roadPath = [];
+    let routePolyline = null;
+    let routeJunctions = [];
     let currentStep = 0;
     let gpsTimer = null;
     let ambMarker = null;
@@ -119,12 +122,14 @@
         navigator.geolocation.getCurrentPosition(pos => {
           currentOrigin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
           map.setView([currentOrigin.lat, currentOrigin.lon], 13);
+          loadRouteForHospital(selectedHospitalId);
         });
       }
 
       const res = await fetch('/api/hospitals');
       const data = await res.json();
       hospitalsData = data.hospitals;
+      top50Signals = data.top_50_signals || [];
 
       loadRouteForHospital(selectedHospitalId);
       initSpeechRecognition();
@@ -140,8 +145,10 @@
       if (destMarker) map.removeLayer(destMarker);
       destMarker = L.marker([h.lat, h.lon]).addTo(map).bindPopup(`<b>${h.name}</b>`).openPopup();
 
+      if (routePolyline) map.removeLayer(routePolyline);
       Object.values(junctionMarkers).forEach(m => map.removeLayer(m));
       junctionMarkers = {};
+      routeJunctions = [];
 
       const url = `https://router.project-osrm.org/route/v1/driving/${currentOrigin.lon},${currentOrigin.lat};${h.lon},${h.lat}?overview=full&geometries=geojson`;
       try {
@@ -151,42 +158,33 @@
           const route = data.routes[0];
           roadPath = route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
 
-          L.polyline(roadPath, { color: '#38bdf8', weight: 6, opacity: 0.9 }).addTo(map);
-          map.fitBounds(L.polyline(roadPath).getBounds(), { padding: [40, 40] });
+          routePolyline = L.polyline(roadPath, { color: '#38bdf8', weight: 6, opacity: 0.9 }).addTo(map);
+          map.fitBounds(routePolyline.getBounds(), { padding: [40, 40] });
 
           if (ambMarker) map.removeLayer(ambMarker);
           ambMarker = L.marker(roadPath[0], { icon: ambIcon }).addTo(map);
 
-          // SNAP ALL 125 NAMED SIGNAL NODES DIRECTLY ONTO THE ROAD PATH GEOMETRY
-          const numNodes = 125;
-          const baseHubs = [
-            "Gottigere Cross Signal", "Hulimavu Gate Signal", "Meenakshi Mall Junction", "IIMB Main Gate Signal", 
-            "Bannerghatta Underpass", "Jayadeva Flyover Signal", "Central Silk Board Junction", "BTM 29th Main Signal", 
-            "Koramangala Water Tank", "Sony World Signal", "Ejipura Ring Signal", "Domlur Flyover Signal", 
-            "Trinity Church Junction", "M.G. Road Signal", "Hebbal Flyover Signal", "Mathikere Main Signal",
-            "Yeshwantpur Circle", "Goraguntepalya Signal", "Peenya 1st Stage Signal", "Navrang Circle Signal",
-            "Magadi Road Tollgate", "BEL Circle Signal", "Whitefield Main Signal", "ITPL Gate Signal", 
-            "Hoodi Circle Signal", "Marathahalli Bridge", "Bellandur Junction", "Devarabisanahalli Signal",
-            "Agara Signal", "Iblur Junction", "Jayanagar 4th Block", "Banashankari Temple Signal",
-            "JP Nagar 15th Cross", "KR Puram Cable Bridge Signal", "Tin Factory Junction", "Hebbal Lake Signal",
-            "Sadashivanagar Police Station Signal", "Mekhri Circle Signal", "Cunningham Road Junction", "Queens Road Signal",
-            "Infantry Road Crossing", "Residency Road Signal", "Richmond Circle", "Shanti Nagar Bus Stand Signal",
-            "Lalbagh West Gate Signal", "Basavanagudi Bull Temple Signal", "NR Colony Junction", "Chamrajpet Signal",
-            "Kasturba Road Signal", "Hospital Emergency Gate Approach"
-          ];
-
+          // SNAP ALL TOP 50 HIGH-DENSITY SIGNALS DIRECTLY ONTO THE ROAD PATH GEOMETRY
+          const numNodes = 50;
           for (let i = 1; i <= numNodes; i++) {
             if (roadPath.length === 0) break;
             const pathIndex = Math.min(roadPath.length - 1, Math.floor((i / (numNodes + 1)) * roadPath.length));
             const [jLat, jLon] = roadPath[pathIndex];
             
             const jId = `J${i}`;
-            const hub = baseHubs[(i - 1) % baseHubs.length];
-            const jName = `${hub} [Sub-Node ${i}]`;
+            const signalName = top50Signals[(i - 1) % top50Signals.length] || `High-Density Signal ${i}`;
+
+            routeJunctions.push({
+              id: jId,
+              name: signalName,
+              lat: jLat,
+              lon: jLon,
+              pathIndex: pathIndex
+            });
 
             junctionMarkers[jId] = L.circleMarker([jLat, jLon], {
-              radius: 4, fillColor: '#ef4444', color: '#fff', weight: 1, fillOpacity: 1
-            }).addTo(map).bindTooltip(`<b>${jId}: ${jName}</b>`, { permanent: false, direction: 'right' });
+              radius: 6, fillColor: '#ef4444', color: '#fff', weight: 1.5, fillOpacity: 1
+            }).addTo(map).bindTooltip(`<b>${jId}: ${signalName}</b>`, { permanent: false, direction: 'right' });
           }
         }
       } catch (e) {}
@@ -209,6 +207,17 @@
         const [lat, lon] = roadPath[currentStep];
         ambMarker.setLatLng([lat, lon]);
 
+        const passedIds = [];
+        let upcomingJunction = null;
+
+        for (const rj of routeJunctions) {
+          if (currentStep >= rj.pathIndex) {
+            passedIds.push(rj.id);
+          } else if (!upcomingJunction) {
+            upcomingJunction = rj;
+          }
+        }
+
         const res = await fetch('/api/driver/gps', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -216,7 +225,12 @@
             ambulance_id: 'AMB-108',
             lat, lon,
             speed_kmh: speed,
-            destination_id: selectedHospitalId
+            destination_id: selectedHospitalId,
+            closest_junction_id: upcomingJunction ? upcomingJunction.id : null,
+            closest_junction_name: upcomingJunction ? upcomingJunction.name : null,
+            closest_junction_lat: upcomingJunction ? upcomingJunction.lat : null,
+            closest_junction_lon: upcomingJunction ? upcomingJunction.lon : null,
+            passed_junction_ids: passedIds
           })
         });
         const status = await res.json();
@@ -224,6 +238,16 @@
         document.getElementById('txBadge').innerText = `🎙️ TX LIVE @ 65 km/h`;
 
         const closest = status.closest_upcoming_junction;
+        Object.keys(junctionMarkers).forEach(jId => {
+          if (passedIds.includes(jId)) {
+            junctionMarkers[jId].setStyle({ fillColor: '#64748b', radius: 5 });
+          } else if (closest && closest.id === jId) {
+            junctionMarkers[jId].setStyle({ fillColor: '#10b981', radius: 11 });
+          } else {
+            junctionMarkers[jId].setStyle({ fillColor: '#ef4444', radius: 6 });
+          }
+        });
+
         const box = document.getElementById('closestJunctionBox');
         if (closest) {
           box.innerHTML = `
@@ -234,7 +258,7 @@
             </div>
           `;
         } else {
-          box.innerHTML = `<div class="text-emerald-400 font-bold">All junctions cleared! Arriving at Hospital.</div>`;
+          box.innerHTML = `<div class="text-emerald-400 font-bold">All 50 high-density signals cleared! Arriving at Hospital.</div>`;
         }
       }, 400);
     }
@@ -280,6 +304,15 @@
         } else if (transcript.includes('apollo')) {
           speakFeedback("Switching destination to Apollo Hospital.");
           loadRouteForHospital('apollo_bannerghatta');
+        } else if (transcript.includes('aster') || transcript.includes('hebbal')) {
+          speakFeedback("Switching destination to Aster CMI Hospital.");
+          loadRouteForHospital('aster_cmi_hebbal');
+        } else if (transcript.includes('ramaiah') || transcript.includes('mathikere')) {
+          speakFeedback("Switching destination to M.S. Ramaiah Hospital.");
+          loadRouteForHospital('ms_ramana_mathikere');
+        } else if (transcript.includes('whitefield') || transcript.includes('vydehi')) {
+          speakFeedback("Switching destination to Vydehi Hospital.");
+          loadRouteForHospital('vydehi_whitefield');
         } else if (transcript.includes('reset') || transcript.includes('stop trip')) {
           speakFeedback("Resetting trip.");
           resetTripState();
