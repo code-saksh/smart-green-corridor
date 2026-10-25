@@ -3,9 +3,9 @@ import time
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-app = FastAPI(title="AURA-EVP // Live Device GPS & Hospital Selector")
+app = FastAPI(title="AURA-EVP // Complete Multi-Part Emergency Green Corridor API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,6 +45,9 @@ HOSPITALS = {
     }
 }
 
+# =========================================================
+# GLOBAL LIVE STATE & SIGNAL BRAIN
+# =========================================================
 live_state = {
     "active": False,
     "ambulance_id": "AMB-108",
@@ -84,12 +87,26 @@ class LiveGPSPacket(BaseModel):
     speed_kmh: float
     destination_id: str
 
+class JunctionDensityPayload(BaseModel):
+    vehicle_count: int = Field(..., ge=0, le=100, description="Live vehicle count from YOLOv8 / CCTV")
+    cross_traffic_density: float | None = Field(default=None, ge=0.0, le=1.0)
+    source: str = Field(default="YOLOv8_EDGE_CAMERA")
+
+
+# =========================================================
+# API ENDPOINTS
+# =========================================================
+
 @app.get("/api/hospitals")
 async def get_hospitals():
+    """Returns available hospital destinations and their corresponding junctions."""
     return {"hospitals": HOSPITALS}
 
 @app.post("/api/driver/gps")
 async def receive_driver_gps(packet: LiveGPSPacket):
+    """
+    Receives live device GPS and computes sequential closest-junction preemption math.
+    """
     live_state["active"] = True
     live_state["ambulance_id"] = packet.ambulance_id
     live_state["lat"] = packet.lat
@@ -119,6 +136,7 @@ async def receive_driver_gps(packet: LiveGPSPacket):
         amb_lane = j_cfg["amb_approach"]
         lanes = dict(j_cfg["lanes"])
 
+        # Queue Clearance Math: T_clear = T_startup + (N_vehicles / Saturation_Flow)
         startup_delay = 2.5
         saturation_flow = 0.55
         queue_in_amb_lane = lanes[amb_lane]
@@ -165,6 +183,30 @@ async def receive_driver_gps(packet: LiveGPSPacket):
         live_state["active_junction"]["decision_reason"] = f"🏥 Ambulance arrived at {selected_hospital['name']}!"
 
     return {"status": "GPS_RECEIVED", "closest_upcoming_junction": live_state["active_junction"]}
+
+@app.post("/api/v1/junctions/{junction_id}/density")
+async def update_junction_vehicle_density(payload: JunctionDensityPayload, junction_id: str):
+    """
+    **Part 3 (YOLOv8 Edge CCTV Webhook):** Pushes real-time waiting vehicle counts 
+    from edge cameras into a specific junction, dynamically recalculating Queue Clearance Time.
+    """
+    selected_hospital = HOSPITALS.get(live_state.get("destination_id", "manipal_old_airport"))
+    for j in selected_hospital["corridor_junctions"]:
+        if j["id"].upper() == junction_id.upper():
+            j["lanes"][j["amb_approach"]] = payload.vehicle_count
+            if payload.cross_traffic_density is not None:
+                j["cross_traffic_density"] = payload.cross_traffic_density
+            
+            if live_state["active_junction"]["id"].upper() == junction_id.upper():
+                live_state["active_junction"]["lanes"] = dict(j["lanes"])
+                
+            return {
+                "status": "updated",
+                "junction_id": j["id"],
+                "new_ambulance_lane_queue": payload.vehicle_count,
+                "source": payload.source
+            }
+    return {"status": "error", "message": "Junction not found"}
 
 @app.get("/api/live-state")
 async def get_live_state():
