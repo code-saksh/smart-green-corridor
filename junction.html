@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Autonomous 4-Way Traffic Signal Brain & Live Intersection</title>
+  <title>Autonomous 4-Way Traffic Signal Brain</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body { background: #090d16; color: #f8fafc; font-family: system-ui, sans-serif; }
@@ -17,31 +17,28 @@
     <div class="flex items-center gap-3">
       <span class="h-3 w-3 rounded-full bg-emerald-400 animate-ping"></span>
       <div>
-        <h1 class="text-base font-bold text-white">AUTONOMOUS 4-WAY TRAFFIC SIGNAL BRAIN // Live Intersection View</h1>
-        <p class="text-xs text-slate-400">Zero Manual Intervention • Syncs Live with Driver Phone GPS (<code class="text-cyan-400">/driver</code>)</p>
+        <h1 class="text-base font-bold text-white">PART 2 // Autonomous 4-Way Traffic Signal Brain</h1>
+        <p class="text-xs text-slate-400">Syncs Live with Driver App GPS (<a href="/driver" class="text-cyan-400 underline">/driver</a>)</p>
       </div>
     </div>
-    <div class="flex items-center gap-3">
-      <a href="/driver" target="_blank" class="bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition">
-        📱 Open Driver GPS App (/driver) ↗
-      </a>
-    </div>
+    <a href="/driver" target="_blank" class="bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-4 py-2 rounded-lg transition">
+      📱 Open Driver App (/driver) ↗
+    </a>
   </header>
 
   <div class="flex-1 grid grid-cols-12 gap-3 overflow-hidden">
-    <!-- LEFT: ML TELEMETRY & 4-DIRECTIONAL LANE REGULATOR (5 COLS) -->
+    <!-- LEFT: TELEMETRY & LANES (5 COLS) -->
     <div class="col-span-5 bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between overflow-y-auto">
       <div class="space-y-4">
         <div class="bg-slate-950 border border-cyan-500/40 rounded-xl p-3.5">
           <div class="text-[11px] uppercase font-bold text-cyan-400">Active Closest Junction Receiving GPS</div>
           <div id="jTitle" class="text-lg font-bold text-white mt-0.5">J1 — Agara Signal</div>
-          <div id="jPhase" class="text-xs font-mono text-emerald-400 mt-1">PHASE: NORMAL_ADAPTIVE</div>
+          <div id="jPhase" class="text-xs font-mono text-emerald-400 mt-1">MODE: NORMAL_ADAPTIVE</div>
         </div>
 
-        <!-- PREEMPTION MATH CARDS -->
         <div class="grid grid-cols-3 gap-2.5 text-center">
           <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl">
-            <div class="text-[10px] text-slate-400 uppercase">Ambulance Dist</div>
+            <div class="text-[10px] text-slate-400 uppercase">Distance</div>
             <div id="distVal" class="text-base font-bold font-mono text-white">1450 m</div>
           </div>
           <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl">
@@ -54,23 +51,21 @@
           </div>
         </div>
 
-        <!-- 4 DIRECTIONAL LANES STATUS -->
         <div>
           <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">4-Directional Lane Regulation</h2>
           <div id="lanesGrid" class="grid grid-cols-2 gap-2.5"></div>
         </div>
       </div>
 
-      <!-- AI EXPLAINABILITY BOX -->
       <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 mt-4">
-        <div class="text-xs font-bold uppercase text-amber-400 mb-1">🧠 Autonomous ML Signal Decision Log</div>
+        <div class="text-xs font-bold uppercase text-amber-400 mb-1">🧠 Autonomous ML Decision Log</div>
         <div id="reasonBox" class="text-xs text-slate-300 leading-relaxed font-mono">
           Waiting for Driver App GPS transmission...
         </div>
       </div>
     </div>
 
-    <!-- RIGHT: LIVE 4-WAY INTERSECTION CANVAS SIMULATION (7 COLS) -->
+    <!-- RIGHT: INTERSECTION CANVAS (7 COLS) -->
     <div class="col-span-7 bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center justify-center">
       <canvas id="simCanvas" width="650" height="540"></canvas>
     </div>
@@ -87,8 +82,8 @@
         state = await res.json();
         const aj = state.active_junction;
 
-        document.getElementById('jTitle').innerText = `${aj.id} — ${aj.name} (Ambulance from ${aj.amb_approach})`;
-        document.getElementById('jPhase').innerText = `AUTONOMOUS MODE: ${aj.phase}`;
+        document.getElementById('jTitle').innerText = `${aj.id} — ${aj.name} (Approach: ${aj.amb_approach})`;
+        document.getElementById('jPhase').innerText = `MODE: ${aj.phase}`;
         document.getElementById('distVal').innerText = `${aj.distance_m} m`;
         document.getElementById('etaVal').innerText = `${aj.eta_sec} s`;
         document.getElementById('tClearVal').innerText = `${aj.t_clear_sec} s`;
@@ -106,10 +101,10 @@
           grid.innerHTML += `
             <div class="p-3 rounded-xl border ${color}">
               <div class="flex justify-between items-center">
-                <span class="text-xs font-bold text-white">${dir} LANE ${isAmb ? '🚑' : ''}</span>
+                <span class="text-xs font-bold text-white">${dir} ${isAmb ? '🚑' : ''}</span>
                 <span class="text-xs font-mono font-bold">● ${sig}</span>
               </div>
-              <div class="text-xs text-slate-300 mt-1">Waiting Queue: <strong>${count} vehicles</strong></div>
+              <div class="text-xs text-slate-300 mt-1">Queue: <strong>${count} cars</strong></div>
             </div>
           `;
         });
@@ -122,24 +117,13 @@
       const cy = canvas.height / 2;
       const roadW = 120;
 
-      // Draw Roads
       ctx.fillStyle = '#1e293b';
       ctx.fillRect(cx - roadW / 2, 0, roadW, canvas.height);
       ctx.fillRect(0, cy - roadW / 2, canvas.width, roadW);
 
-      // Center Markings
-      ctx.strokeStyle = '#475569';
-      ctx.setLineDash([12, 12]);
-      ctx.beginPath();
-      ctx.moveTo(cx, 0); ctx.lineTo(cx, canvas.height);
-      ctx.moveTo(0, cy); ctx.lineTo(canvas.width, cy);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
       if (!state) return requestAnimationFrame(drawIntersection);
       const aj = state.active_junction;
 
-      // Draw Traffic Lights for N, S, E, W
       const lightCoords = {
         NORTH: [cx - 45, cy - 75],
         SOUTH: [cx + 45, cy + 75],
@@ -158,20 +142,6 @@
         ctx.stroke();
       });
 
-      // Draw Queued Cars in SOUTH & EAST Lanes
-      const southCars = Math.min(8, Math.ceil(aj.lanes.SOUTH / 3));
-      ctx.fillStyle = '#38bdf8';
-      for (let i = 0; i < southCars; i++) {
-        ctx.fillRect(cx + 15, cy + 75 + i * 24, 22, 16);
-      }
-
-      const eastCars = Math.min(8, Math.ceil(aj.lanes.EAST / 3));
-      ctx.fillStyle = '#94a3b8';
-      for (let i = 0; i < eastCars; i++) {
-        ctx.fillRect(cx + 75 + i * 24, cy - 35, 16, 22);
-      }
-
-      // Draw Approaching Ambulance in its approach lane
       const normDist = Math.min(1, aj.distance_m / 900);
       const ambY = cy + 65 + normDist * 200;
       ctx.fillStyle = '#ef4444';
