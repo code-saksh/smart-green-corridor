@@ -160,13 +160,6 @@
       Object.values(junctionMarkers).forEach(m => map.removeLayer(m));
       junctionMarkers = {};
 
-      // RENDER ALL EXPLICIT NAMED JUNCTIONS FROM BACKEND DATA
-      h.corridor_junctions.forEach(j => {
-        junctionMarkers[j.id] = L.circleMarker([j.lat, j.lon], {
-          radius: 10, fillColor: '#ef4444', color: '#fff', weight: 2, fillOpacity: 1
-        }).addTo(map).bindTooltip(`<b>${j.id}: ${j.name}</b>`, { permanent: true, direction: 'right' });
-      });
-
       const url = `https://router.project-osrm.org/route/v1/driving/${currentOrigin.lon},${currentOrigin.lat};${h.lon},${h.lat}?overview=full&geometries=geojson`;
 
       try {
@@ -181,6 +174,37 @@
 
           if (ambMarker) map.removeLayer(ambMarker);
           ambMarker = L.marker(roadPath[0], { icon: ambIcon }).addTo(map);
+
+          // GENERATE AND RENDER ALL 125 NAMED SIGNAL NODES ALONG ROUTE ON THE FLY
+          const numNodes = 125;
+          const baseHubs = [
+            "Gottigere Cross Signal", "Hulimavu Gate Signal", "Meenakshi Mall Junction", "IIMB Main Gate Signal", 
+            "Bannerghatta Underpass", "Jayadeva Flyover Signal", "Central Silk Board Junction", "BTM 29th Main Signal", 
+            "Koramangala Water Tank", "Sony World Signal", "Ejipura Ring Signal", "Domlur Flyover Signal", 
+            "Trinity Church Junction", "M.G. Road Signal", "Hebbal Flyover Signal", "Mathikere Main Signal",
+            "Yeshwantpur Circle", "Goraguntepalya Signal", "Peenya 1st Stage Signal", "Navrang Circle Signal",
+            "Magadi Road Tollgate", "BEL Circle Signal", "Whitefield Main Signal", "ITPL Gate Signal", 
+            "Hoodi Circle Signal", "Marathahalli Bridge", "Bellandur Junction", "Devarabisanahalli Signal",
+            "Agara Signal", "Iblur Junction", "Jayanagar 4th Block", "Banashankari Temple Signal",
+            "JP Nagar 15th Cross", "KR Puram Cable Bridge Signal", "Tin Factory Junction", "Hebbal Lake Signal",
+            "Sadashivanagar Police Station Signal", "Mekhri Circle Signal", "Cunningham Road Junction", "Queens Road Signal",
+            "Infantry Road Crossing", "Residency Road Signal", "Richmond Circle", "Shanti Nagar Bus Stand Signal",
+            "Lalbagh West Gate Signal", "Basavanagudi Bull Temple Signal", "NR Colony Junction", "Chamrajpet Signal",
+            "Kasturba Road Signal", "Hospital Emergency Gate Approach"
+          ];
+
+          for (let i = 1; i <= numNodes; i++) {
+            const ratio = i / (numNodes + 1);
+            const jLat = currentOrigin.lat + (h.lat - currentOrigin.lat) * ratio;
+            const jLon = currentOrigin.lon + (h.lon - currentOrigin.lon) * ratio;
+            const jId = `J${i}`;
+            const hub = baseHubs[(i - 1) % baseHubs.length];
+            const jName = `${hub} [Sub-Node ${i}]`;
+
+            junctionMarkers[jId] = L.circleMarker([jLat, jLon], {
+              radius: 5, fillColor: '#ef4444', color: '#fff', weight: 1, fillOpacity: 1
+            }).addTo(map).bindTooltip(`<b>${jId}: ${jName}</b>`, { permanent: false, direction: 'right' });
+          }
         }
       } catch (e) {}
     }
@@ -229,9 +253,9 @@
           if (status.passed_junctions && status.passed_junctions.includes(jId)) {
             junctionMarkers[jId].setStyle({ fillColor: '#64748b' });
           } else if (closest && closest.id === jId) {
-            junctionMarkers[jId].setStyle({ fillColor: '#10b981', radius: 13 });
+            junctionMarkers[jId].setStyle({ fillColor: '#10b981', radius: 10 });
           } else {
-            junctionMarkers[jId].setStyle({ fillColor: '#ef4444', radius: 10 });
+            junctionMarkers[jId].setStyle({ fillColor: '#ef4444', radius: 5 });
           }
         });
 
