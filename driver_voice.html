@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AURA-EVP // Hands-Free Voice Command Driver HUD</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    body { background: #090d16; color: #f8fafc; font-family: system-ui, sans-serif; }
+    #map { height: 100%; width: 100%; border-radius: 1rem; }
+    .leaflet-tile-pane {
+      filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+    }
+    .amb-dot {
+      width: 22px; height: 22px; background: #ef4444; border: 3px solid #fff;
+      border-radius: 50%; box-shadow: 0 0 15px #ef4444;
+    }
+  </style>
+</head>
+<body class="h-screen flex flex-col p-3 gap-3 overflow-hidden">
+
+  <!-- HEADER -->
+  <header class="bg-slate-900 border border-slate-800 rounded-xl px-5 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <span id="micPulse" class="h-3 w-3 rounded-full bg-emerald-400 animate-ping"></span>
+      <div>
+        <h1 class="text-base font-bold text-white">VOICE HUD // Hands-Free Emergency Control</h1>
+        <p class="text-xs text-slate-400">Say <strong class="text-cyan-400">"Start GPS"</strong>, <strong class="text-cyan-400">"Go to Fortis"</strong>, or <strong class="text-cyan-400">"Reset"</strong></p>
+      </div>
+    </div>
+    <div class="flex items-center gap-3">
+      <a href="/junction" target="_blank" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition">
+        🚦 Open 4-Way Junction View (/junction) ↗
+      </a>
+      <div id="txBadge" class="bg-slate-950 border border-slate-800 px-3 py-1.5 rounded-lg text-xs font-mono text-slate-400">
+        🎙️ Voice AI: LISTENING
+      </div>
+    </div>
+  </header>
+
+  <div class="flex-1 grid grid-cols-12 gap-3 overflow-hidden">
+    <!-- LEFT: VOICE COMMAND FEEDBACK & CONTROLS (4 COLS) -->
+    <div class="col-span-4 bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between overflow-y-auto">
+      <div class="space-y-4">
+        <!-- LIVE SPEECH TRANSCRIPT BOX -->
+        <div class="bg-slate-950 border border-cyan-500/50 p-4 rounded-xl shadow-inner">
+          <div class="text-[11px] uppercase tracking-wider text-cyan-400 font-bold mb-1">🗣️ Live Voice Command Transcript</div>
+          <div id="speechOutput" class="text-sm font-mono text-white min-h-[40px] flex items-center">
+            "Listening for driver commands..."
+          </div>
+        </div>
+
+        <!-- CURRENT DESTINATION STATUS -->
+        <div class="bg-slate-950 border border-slate-800 p-3.5 rounded-xl space-y-2">
+          <div class="text-[11px] uppercase text-slate-400 font-bold">Active Hospital Destination</div>
+          <div id="currentDestLabel" class="text-xs font-semibold text-emerald-400">Manipal Hospital, Old Airport Road</div>
+        </div>
+
+        <!-- VOICE COMMAND CHEAT SHEET -->
+        <div class="bg-slate-950 border border-slate-800 p-3.5 rounded-xl space-y-2 text-xs">
+          <div class="text-[11px] uppercase text-slate-400 font-bold mb-1">Available Voice Commands:</div>
+          <ul class="space-y-1 text-slate-300 font-mono text-[11px]">
+            <li>• <span class="text-cyan-400">"Start GPS"</span> ➔ Begins transmission</li>
+            <li>• <span class="text-cyan-400">"Go to Manipal"</span> ➔ Sets destination</li>
+            <li>• <span class="text-cyan-400">"Go to Fortis"</span> ➔ Sets destination</li>
+            <li>• <span class="text-cyan-400">"Reset trip"</span> ➔ Resets simulation</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- ACTIVE JUNCTION HAND-OFF MONITOR -->
+      <div class="bg-slate-950 border border-cyan-500/40 rounded-xl p-3.5 mt-4">
+        <div class="text-[11px] font-bold uppercase tracking-wider text-cyan-400 mb-2">
+          🎯 Active Target Junction (Closest Only)
+        </div>
+        <div id="closestJunctionBox" class="text-xs text-slate-300 space-y-1">
+          Say "Start GPS" to activate hands-free corridor preemption.
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: MAP (8 COLS) -->
+    <div class="col-span-8 bg-slate-900 border border-slate-800 rounded-xl p-2 relative">
+      <div id="map"></div>
+    </div>
+  </div>
+
+  <script>
+    const map = L.map('map').setView([12.9300, 77.6200], 13);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+
+    let hospitalsData = {};
+    let selectedHospitalId = 'manipal_old_airport';
+    let currentOrigin = { lat: 12.9177, lon: 77.6233 };
+    let roadPath = [];
+    let currentStep = 0;
+    let gpsTimer = null;
+    let ambMarker = null;
+    let destMarker = null;
+    let junctionMarkers = {};
+
+    const ambIcon = L.divIcon({ className: '', html: '<div class="amb-dot"></div>', iconSize: [22, 22], iconAnchor: [11, 11] });
+
+    async function initApp() {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(pos => {
+          currentOrigin = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+          map.setView([currentOrigin.lat, currentOrigin.lon], 13);
+        });
+      }
+
+      const res = await fetch('/api/hospitals');
+      const data = await res.json();
+      hospitalsData = data.hospitals;
+
+      loadRouteForHospital(selectedHospitalId);
+      initSpeechRecognition();
+    }
+
+    async function loadRouteForHospital(hId) {
+      selectedHospitalId = hId;
+      const h = hospitalsData[hId];
+      if (!h) return;
+
+      document.getElementById('currentDestLabel').innerText = h.name;
+
+      if (destMarker) map.removeLayer(destMarker);
+      destMarker = L.marker([h.lat, h.lon]).addTo(map).bindPopup(`<b>${h.name}</b>`).openPopup();
+
+      Object.values(junctionMarkers).forEach(m => map.removeLayer(m));
+      junctionMarkers = {};
+
+      h.corridor_junctions.forEach(j => {
+        junctionMarkers[j.id] = L.circleMarker([j.lat, j.lon], {
+          radius: 9, fillColor: '#ef4444', color: '#fff', weight: 2, fillOpacity: 1
+        }).addTo(map).bindTooltip(`${j.id}: ${j.name}`, { permanent: true, direction: 'right' });
+      });
+
+      const url = `https://router.project-osrm.org/route/v1/driving/${currentOrigin.lon},${currentOrigin.lat};${h.lon},${h.lat}?overview=full&geometries=geojson`;
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.routes && data.routes.length > 0) {
+          const route = data.routes[0];
+          roadPath = route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
+
+          L.polyline(roadPath, { color: '#38bdf8', weight: 6, opacity: 0.9 }).addTo(map);
+          map.fitBounds(L.polyline(roadPath).getBounds(), { padding: [40, 40] });
+
+          if (ambMarker) map.removeLayer(ambMarker);
+          ambMarker = L.marker(roadPath[0], { icon: ambIcon }).addTo(map);
+        }
+      } catch (e) {}
+    }
+
+    function startGPSStream() {
+      if (roadPath.length === 0) return;
+      if (gpsTimer) clearInterval(gpsTimer);
+
+      gpsTimer = setInterval(async () => {
+        if (currentStep >= roadPath.length - 1) {
+          clearInterval(gpsTimer);
+          document.getElementById('txBadge').innerText = '🏥 DESTINATION REACHED';
+          return;
+        }
+        const speed = 65; // Fixed optimal emergency speed for voice mode
+        const stepAdvance = Math.max(1, Math.round(speed / 40));
+        currentStep = Math.min(roadPath.length - 1, currentStep + stepAdvance);
+
+        const [lat, lon] = roadPath[currentStep];
+        ambMarker.setLatLng([lat, lon]);
+
+        const res = await fetch('/api/driver/gps', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ambulance_id: 'AMB-108',
+            lat, lon,
+            speed_kmh: speed,
+            destination_id: selectedHospitalId
+          })
+        });
+        const status = await res.json();
+
+        document.getElementById('txBadge').innerText = `🎙️ TX LIVE @ 65 km/h`;
+
+        const closest = status.closest_upcoming_junction;
+        Object.keys(junctionMarkers).forEach(jId => {
+          if (status.passed_junctions && status.passed_junctions.includes(jId)) {
+            junctionMarkers[jId].setStyle({ fillColor: '#64748b' });
+          } else if (closest && closest.id === jId) {
+            junctionMarkers[jId].setStyle({ fillColor: '#10b981', radius: 13 });
+          } else {
+            junctionMarkers[jId].setStyle({ fillColor: '#ef4444', radius: 9 });
+          }
+        });
+
+        const box = document.getElementById('closestJunctionBox');
+        if (closest) {
+          box.innerHTML = `
+            <div class="text-sm font-bold text-white">${closest.id} — ${closest.name}</div>
+            <div class="flex justify-between text-xs mt-1">
+              <span>Distance: <strong class="text-cyan-400">${closest.distance_m} m</strong></span>
+              <span>ETA: <strong class="text-emerald-400">${closest.eta_sec} sec</strong></span>
+            </div>
+          `;
+        } else {
+          box.innerHTML = `<div class="text-emerald-400 font-bold">All junctions cleared! Arriving at Hospital.</div>`;
+        }
+      }, 400);
+    }
+
+    async function resetTripState() {
+      if (gpsTimer) clearInterval(gpsTimer);
+      currentStep = 0;
+      await fetch('/api/driver/reset', { method: 'POST' });
+      loadRouteForHospital(selectedHospitalId);
+      document.getElementById('txBadge').innerText = '🎙️ Voice AI: LISTENING';
+      document.getElementById('closestJunctionBox').innerText = 'Trip reset successfully via voice command.';
+    }
+
+    // ==========================================
+    // WEB SPEECH API INTEGRATION
+    // ==========================================
+    function initSpeechRecognition() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        document.getElementById('speechOutput').innerText = "Speech recognition not supported in this browser. Use Chrome.";
+        return;
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event) => {
+        const transcript = event.results[event.results.length - 1][0].transcript.toLowerCase().trim();
+        document.getElementById('speechOutput').innerText = `"${transcript}"`;
+
+        if (transcript.includes('start gps') || transcript.includes('start transmission')) {
+          speakFeedback("Starting live GPS transmission.");
+          startGPSStream();
+        } else if (transcript.includes('manipal')) {
+          speakFeedback("Switching destination to Manipal Hospital.");
+          loadRouteForHospital('manipal_old_airport');
+        } else if (transcript.includes('fortis')) {
+          speakFeedback("Switching destination to Fortis Hospital.");
+          loadRouteForHospital('fortis_bannerghatta');
+        } else if (transcript.includes('apollo')) {
+          speakFeedback("Switching destination to Apollo Hospital.");
+          loadRouteForHospital('apollo_bannerghatta');
+        } else if (transcript.includes('reset') || transcript.includes('stop')) {
+          speakFeedback("Resetting trip.");
+          resetTripState();
+        }
+      };
+
+      recognition.onerror = () => {
+        // Auto restart recognition on minor errors to keep it hands-free
+        try { recognition.start(); } catch(e) {}
+      };
+
+      recognition.onend = () => {
+        try { recognition.start(); } catch(e) {}
+      };
+
+      recognition.start();
+    }
+
+    function speakFeedback(text) {
+      if ('speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 1.1;
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+
+    initApp();
+  </script>
+</body>
+</html>

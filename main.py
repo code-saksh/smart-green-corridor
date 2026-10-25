@@ -235,3 +235,9 @@ async def serve_driver():
 async def serve_junction():
     with open("junction.html", "r", encoding="utf-8") as f:
         return HTMLResponse(f.read())
+
+@app.get("/driver-voice")
+async def serve_driver_voice():
+    """Serves the hands-free voice command driver HUD."""
+    with open("driver_voice.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read())
