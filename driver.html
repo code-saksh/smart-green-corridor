@@ -175,7 +175,7 @@
           if (ambMarker) map.removeLayer(ambMarker);
           ambMarker = L.marker(roadPath[0], { icon: ambIcon }).addTo(map);
 
-          // GENERATE AND RENDER ALL 125 NAMED SIGNAL NODES ALONG ROUTE ON THE FLY
+          // SNAP ALL 125 NAMED SIGNAL NODES DIRECTLY ONTO THE ROAD PATH GEOMETRY
           const numNodes = 125;
           const baseHubs = [
             "Gottigere Cross Signal", "Hulimavu Gate Signal", "Meenakshi Mall Junction", "IIMB Main Gate Signal", 
@@ -194,15 +194,16 @@
           ];
 
           for (let i = 1; i <= numNodes; i++) {
-            const ratio = i / (numNodes + 1);
-            const jLat = currentOrigin.lat + (h.lat - currentOrigin.lat) * ratio;
-            const jLon = currentOrigin.lon + (h.lon - currentOrigin.lon) * ratio;
+            if (roadPath.length === 0) break;
+            const pathIndex = Math.min(roadPath.length - 1, Math.floor((i / (numNodes + 1)) * roadPath.length));
+            const [jLat, jLon] = roadPath[pathIndex];
+            
             const jId = `J${i}`;
             const hub = baseHubs[(i - 1) % baseHubs.length];
             const jName = `${hub} [Sub-Node ${i}]`;
 
             junctionMarkers[jId] = L.circleMarker([jLat, jLon], {
-              radius: 5, fillColor: '#ef4444', color: '#fff', weight: 1, fillOpacity: 1
+              radius: 4, fillColor: '#ef4444', color: '#fff', weight: 1, fillOpacity: 1
             }).addTo(map).bindTooltip(`<b>${jId}: ${jName}</b>`, { permanent: false, direction: 'right' });
           }
         }
@@ -253,9 +254,9 @@
           if (status.passed_junctions && status.passed_junctions.includes(jId)) {
             junctionMarkers[jId].setStyle({ fillColor: '#64748b' });
           } else if (closest && closest.id === jId) {
-            junctionMarkers[jId].setStyle({ fillColor: '#10b981', radius: 10 });
+            junctionMarkers[jId].setStyle({ fillColor: '#10b981', radius: 8 });
           } else {
-            junctionMarkers[jId].setStyle({ fillColor: '#ef4444', radius: 5 });
+            junctionMarkers[jId].setStyle({ fillColor: '#ef4444', radius: 4 });
           }
         });
 
